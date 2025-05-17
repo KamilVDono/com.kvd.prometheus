@@ -1,0 +1,19 @@
+{
+    "name": "KVD.Prometheus",
+    "rootNamespace": "KVD.Prometheus",
+    "references": [
+        "Unity.Collections",
+        "Unity.Mathematics",
+        "Unity.Burst",
+        "KVD.Utils"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

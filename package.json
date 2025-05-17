@@ -1,0 +1,23 @@
+{
+  "name": "com.kvd.prometheus",
+  "version": "0.0.1",
+  "displayName": "KamilVDono - Prometheus",
+  "description": "This package uses content files as a way to load content in build and editor (with editor fallback to the AssetDatabase)",
+  "keywords": [
+    "content",
+    "resources",
+    "tools",
+    "loading"
+  ],
+  "author": {
+    "name": "KamilVDono",
+    "email": "kamilvdono@gmail.com"
+  },
+  "dependencies": {
+    "com.unity.mathematics": "1.3.2",
+    "com.unity.burst": "1.8.21",
+    "com.unity.collections": "2.5.1",
+    "com.unity.scriptablebuildpipeline": "2.4.0"
+  },
+  "hideInEditor": false
+}

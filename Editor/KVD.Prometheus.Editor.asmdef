@@ -1,0 +1,22 @@
+{
+    "name": "KVD.Prometheus.Editor",
+    "rootNamespace": "KVD.Prometheus.Editor",
+    "references": [
+        "GUID:f3a383ad58946d84a96538811a3e197e",
+        "GUID:5c1ff9bd975acec488150743d53a93ca",
+        "GUID:c5ecc461727906345a35491a0440694f",
+        "GUID:e0cd26848372d4e5c891c569017e11f1",
+        "GUID:59ecb471de80f35478a4ac410fa00fcf"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
