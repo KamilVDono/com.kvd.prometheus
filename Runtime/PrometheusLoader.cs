@@ -2,7 +2,6 @@
 using KVD.Utils;
 using KVD.Utils.DataStructures;
 using Unity.Content;
-using UnityEngine;
 using UnityEngine.PlayerLoop;
 using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
@@ -11,11 +10,6 @@ namespace KVD.Prometheus
 {
 	public partial class PrometheusLoader
 	{
-		public static string PrometheusPath => Path.Combine(Application.streamingAssetsPath, "Prometheus");
-		public static string PrometheusArchivesPath => Path.Combine(PrometheusPath, "Archives");
-		public static string PrometheusMetaPath => Path.Combine(PrometheusPath, "Meta");
-		public static string PrometheusDataPath => Path.Combine(PrometheusMetaPath, "PrometheusData.bin");
-
 		PrometheusMapping _prometheusMapping;
 
 		ContentNamespace _contentNamespace;
@@ -218,18 +212,27 @@ namespace KVD.Prometheus
 
 		static PrometheusMapping LoadContentFilesData()
 		{
-			var path = PrometheusDataPath;
+			var mappingPath = PrometheusPersistence.MappingsFilePath;
+
 			PrometheusMapping prometheusData;
-			if (File.Exists(path))
+			if (PrometheusSettings.Instance.useBuildData)
 			{
-				prometheusData = new();
-				prometheusData.Deserialize(path);
+				if (File.Exists(mappingPath))
+				{
+					prometheusData = new();
+					prometheusData.Deserialize(mappingPath);
+				}
+				else
+				{
+					Debug.LogError("Cannot find Prometheus mapping file so build data is not available");
+					prometheusData = PrometheusMapping.Fresh();
+				}
 			}
 			else
 			{
-				Debug.LogError("ContentFilesData not found");
 				prometheusData = PrometheusMapping.Fresh();
 			}
+
 			return prometheusData;
 		}
 	}

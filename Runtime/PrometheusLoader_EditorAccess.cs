@@ -61,7 +61,7 @@ namespace KVD.Prometheus
 				var load = ContentFileLoads[loadingIndex];
 				if (load.state == State.WaitingForMounting)
 				{
-					var archiveFilePath = Path.Combine(PrometheusArchivesPath, contentFileGuid.ToString("N"));
+					var archiveFilePath = Path.Combine(PrometheusPersistence.ArchivesDirectoryPath, contentFileGuid.ToString("N"));
 					load.archiveHandle = ArchiveFileInterface.MountAsync(ContentNamespace, archiveFilePath, string.Empty);
 					load.archiveHandle.JobHandle.Complete();
 				}

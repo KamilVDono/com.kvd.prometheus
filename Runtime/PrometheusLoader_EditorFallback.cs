@@ -28,6 +28,10 @@ namespace KVD.Prometheus
 		{
 			hasAsset = false;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isPresent = false;
 			CheckIfPresentInPrometheusAssets(prometheusIdentifier, ref isPresent);
 			if (!isPresent)
@@ -55,6 +59,10 @@ namespace KVD.Prometheus
 			asset = Option<T>.None;
 			hasAsset = false;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isPresent = false;
 			CheckIfPresentInPrometheusAssets(prometheusIdentifier, ref isPresent);
 			if (!isPresent)
@@ -93,6 +101,10 @@ namespace KVD.Prometheus
 			asset = Option<T>.None;
 			hasAsset = false;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isPresent = false;
 			CheckIfPresentInPrometheusAssets(prometheusIdentifier, ref isPresent);
 			if (!isPresent)
@@ -154,6 +166,10 @@ namespace KVD.Prometheus
 		{
 			isActive = false;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isPresent = false;
 			CheckIfPresentInPrometheusAssets(prometheusIdentifier, ref isPresent);
 			if (!isPresent)
@@ -170,6 +186,10 @@ namespace KVD.Prometheus
 		{
 			isLoading = false;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isPresent = false;
 			CheckIfPresentInPrometheusAssets(prometheusIdentifier, ref isPresent);
 			if (!isPresent)
@@ -189,6 +209,10 @@ namespace KVD.Prometheus
 		{
 			isLoaded = false;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isPresent = false;
 			CheckIfPresentInPrometheusAssets(prometheusIdentifier, ref isPresent);
 			if (!isPresent)
@@ -221,6 +245,10 @@ namespace KVD.Prometheus
 			hasAsset = false;
 			loadingHandle = Option<LoadingTaskHandle>.None;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isPresent = false;
 			CheckIfPresentInPrometheusAssets(prometheusIdentifier, ref isPresent);
 			if (!isPresent)
@@ -274,6 +302,10 @@ namespace KVD.Prometheus
 		void EditorUnloadAssetAsync(ref LoadingTaskHandle handle)
 		{
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			// Always invalidate the handle
 			var originalHandle = handle;
 			handle = handle.MakeCancelled();
@@ -312,6 +344,10 @@ namespace KVD.Prometheus
 		{
 			isValid = false;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			if (!handle.IsValid)
 			{
 				Debug.LogError("Handle is not valid");
@@ -351,6 +387,10 @@ namespace KVD.Prometheus
 			asset = Option<T>.None;
 			result = LoadResultState.Invalid;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isValidHandle = false;
 			EditorCheckHandle(handle, true, ref isValidHandle);
 			if (isValidHandle == false)
@@ -385,6 +425,10 @@ namespace KVD.Prometheus
 		{
 			result = default;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isValidHandle = false;
 			EditorCheckHandle(handle, false, ref isValidHandle);
 			if (isValidHandle)
@@ -398,6 +442,10 @@ namespace KVD.Prometheus
 		void EditorAddCallback(in LoadingTaskHandle handle, Callback callback, bool delayedCallbacks)
 		{
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			var isValidHandle = false;
 			EditorCheckHandle(handle, true, ref isValidHandle);
 			if (isValidHandle)
@@ -441,6 +489,10 @@ namespace KVD.Prometheus
 		{
 			hasAsset = false;
 #if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData)
+			{
+				return;
+			}
 			if (IsAssetAvailableFunc != null)
 			{
 				var isPresent = IsAssetAvailableFunc(prometheusIdentifier);

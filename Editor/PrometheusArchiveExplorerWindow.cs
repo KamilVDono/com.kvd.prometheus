@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using KVD.Utils.DataStructures;
+using KVD.Utils.Editor;
 using Unity.Collections;
 using Unity.Content;
 using Unity.IO.Archive;
@@ -43,9 +44,9 @@ namespace KVD.Prometheus.Editor
 			_fileIconContent = new(_fileIcon, "Browse for a file");
 
 			_prometheusMapping = PrometheusMapping.Fresh();
-			if (File.Exists(PrometheusLoader.PrometheusDataPath))
+			if (File.Exists(PrometheusPersistence.MappingsFilePath))
 			{
-				_prometheusMapping.Deserialize(PrometheusLoader.PrometheusDataPath);
+				_prometheusMapping.Deserialize(PrometheusPersistence.MappingsFilePath);
 			}
 
 			_contentNamespace = ContentNamespace.GetOrCreateNamespace("ContentExplore");
@@ -90,11 +91,11 @@ namespace KVD.Prometheus.Editor
 			EditorGUILayout.TextField(_filePath);
 			if (GUILayout.Button(_fileIconContent, GUILayout.Width(25)))
 			{
-				var selectedPath = EditorUtility.OpenFilePanel("Select File", PrometheusLoader.PrometheusArchivesPath, "");
+				var selectedPath = EditorUtility.OpenFilePanel("Select File", PrometheusPersistence.ArchivesDirectoryPath, "");
 				// TODO: Also allow files from build
 				if (!selectedPath.Contains("ContentFiles") || !selectedPath.Contains("Archives"))
 				{
-					selectedPath = PrometheusLoader.PrometheusArchivesPath;
+					selectedPath = PrometheusPersistence.ArchivesDirectoryPath;
 				}
 				_filePath = selectedPath;
 			}
@@ -359,11 +360,10 @@ namespace KVD.Prometheus.Editor
 
 		string GetArchivePath(string fileName)
 		{
-			// TODO: Also allow files from build
-			return Path.Combine(PrometheusLoader.PrometheusArchivesPath, fileName);
+			return Path.Combine(PrometheusPersistence.ArchivesDirectoryPath, fileName);
 		}
 
-		[MenuItem("Window/Prometheus/Archive explorer Window", false, 90)]
+		[MenuItem(KVDConsts.MenuItemPrefix+"/Prometheus/Archive explorer Window", false, 90)]
 		static void ShowWindow()
 		{
 			var window = GetWindow<PrometheusArchiveExplorerWindow>();

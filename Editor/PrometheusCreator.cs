@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using KVD.Utils.DataStructures;
+using KVD.Utils.Editor;
 using UnityEditor;
 using UnityEditor.Build.Pipeline;
 using UnityEditor.Build.Pipeline.Tasks;
@@ -15,23 +16,33 @@ namespace KVD.Prometheus.Editor
 {
 	public static class PrometheusCreator
 	{
-		[MenuItem("Window/Prometheus/Build Prometheus", false, 10)]
+		[MenuItem(KVDConsts.MenuItemPrefix+"/Prometheus/Build Prometheus", false, 10)]
 		public static void BuildPrometheus()
 		{
-			if (Directory.Exists(PrometheusLoader.PrometheusArchivesPath))
+			var baseDirectoryPath = PrometheusPersistence.BaseDirectoryPath;
+			if (!Directory.Exists(baseDirectoryPath))
 			{
-				foreach (var file in Directory.EnumerateFiles(PrometheusLoader.PrometheusArchivesPath).ToArray())
+				Directory.CreateDirectory(baseDirectoryPath);
+			}
+
+			var archivesDirectoryPath = PrometheusPersistence.ArchivesDirectoryPath;
+
+			if (Directory.Exists(archivesDirectoryPath))
+			{
+				foreach (var file in Directory.EnumerateFiles(archivesDirectoryPath).ToArray())
 				{
 					File.Delete(file);
 				}
 			}
 			else
 			{
-				Directory.CreateDirectory(PrometheusLoader.PrometheusArchivesPath);
+				Directory.CreateDirectory(archivesDirectoryPath);
 			}
-			if (!Directory.Exists(PrometheusLoader.PrometheusMetaPath))
+
+			var mappingPath = PrometheusPersistence.MappingsFilePath;
+			if (File.Exists(mappingPath))
 			{
-				Directory.CreateDirectory(PrometheusLoader.PrometheusMetaPath);
+				File.Delete(mappingPath);
 			}
 
 			var buildTarget = EditorUserBuildSettings.activeBuildTarget;
@@ -39,7 +50,7 @@ namespace KVD.Prometheus.Editor
 			var success = BuildPrometheus(buildTarget, buildGroup);
 			if (success)
 			{
-				Debug.Log($"Prometheus built to {PrometheusLoader.PrometheusPath}");
+				Debug.Log($"Prometheus built to {baseDirectoryPath}");
 				AssetDatabase.Refresh();
 			}
 			else
@@ -50,6 +61,8 @@ namespace KVD.Prometheus.Editor
 
 		static bool BuildPrometheus(BuildTarget buildTarget, BuildTargetGroup buildGroup)
 		{
+			var settings = PrometheusSettings.Instance;
+
 			var bundleBuilds = new AssetBundleBuild[1];
 
 			var validAssetPaths = new HashSet<string>();
@@ -70,8 +83,14 @@ namespace KVD.Prometheus.Editor
 			};
 
 			var buildContent = new BundleBuildContent(bundleBuilds);
-			var buildParams = new BundleBuildParameters(buildTarget, buildGroup, PrometheusLoader.PrometheusArchivesPath);
-			buildParams.BundleCompression = BuildCompression.Uncompressed;
+			var buildParams = new BundleBuildParameters(buildTarget, buildGroup, PrometheusPersistence.ArchivesDirectoryPath);
+			buildParams.BundleCompression = settings.compressionType switch
+			{
+				PrometheusSettings.CompressionType.Uncompressed => BuildCompression.Uncompressed,
+				PrometheusSettings.CompressionType.LZ4          => BuildCompression.LZ4,
+				PrometheusSettings.CompressionType.LZMA         => BuildCompression.LZMA,
+				_                                               => throw new ArgumentOutOfRangeException(nameof(settings.compressionType), settings.compressionType, null)
+			};
 			buildParams.NonRecursiveDependencies = false;
 
 			var tasks = DefaultBuildTasks.ContentFileCompatible();
@@ -123,7 +142,7 @@ namespace KVD.Prometheus.Editor
 					contentFilesData.Asset2LocalIdentifier.Add(assetIdentifier, unchecked((ulong)buildLayout.ObjectToLocalID[objectId]));
 				}
 
-				contentFilesData.Serialize(PrometheusLoader.PrometheusDataPath);
+				contentFilesData.Serialize(PrometheusPersistence.MappingsFilePath);
 
 				AssetDatabase.SaveAssets();
 				AssetDatabase.Refresh();

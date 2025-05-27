@@ -1,4 +1,5 @@
-﻿using UnityEditor;
+﻿using KVD.Utils.Editor;
+using UnityEditor;
 
 namespace KVD.Prometheus.Editor
 {
@@ -26,7 +27,7 @@ namespace KVD.Prometheus.Editor
 			_debugger.OnGUI();
 		}
 
-		[MenuItem("Window/Prometheus/PrometheusLoader Debugger Window", false, 50)]
+		[MenuItem(KVDConsts.MenuItemPrefix+"/Prometheus/PrometheusLoader Debugger Window", false, 50)]
 		static void ShowWindow()
 		{
 			var window = GetWindow<PrometheusLoaderDebuggerWindow>();

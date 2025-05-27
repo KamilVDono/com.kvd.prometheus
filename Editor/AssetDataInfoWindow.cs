@@ -1,4 +1,5 @@
-﻿using UnityEditor;
+﻿using KVD.Utils.Editor;
+using UnityEditor;
 using UnityEngine;
 
 namespace KVD.Prometheus.Editor
@@ -56,7 +57,7 @@ namespace KVD.Prometheus.Editor
 			}
 		}
 
-		[MenuItem("Window/Prometheus/Asset Data Info Window", false, 100)]
+		[MenuItem(KVDConsts.MenuItemPrefix+"/Prometheus/Asset Data Info Window", false, 100)]
 		static void ShowWindow()
 		{
 			var window = GetWindow<AssetDataInfoWindow>();
