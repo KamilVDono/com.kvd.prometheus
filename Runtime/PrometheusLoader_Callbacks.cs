@@ -9,6 +9,8 @@ namespace KVD.Prometheus
 {
 	public partial class PrometheusLoader
 	{
+		const uint PreAllocSize = 256;
+
 		Callback[] _callbacks;
 		UnsafeArray<LoadingTaskData> _loadingTasks;
 		UnsafeArray<byte> _loadingTasksVersion;
@@ -47,8 +49,8 @@ namespace KVD.Prometheus
 				Array.Resize(ref _callbacks, (int)newCapacity);
 				UnsafeArray<LoadingTaskData>.Resize(ref _loadingTasks, newCapacity);
 				UnsafeArray<byte>.Resize(ref _loadingTasksVersion, newCapacity);
-				_loadingTasksMask.EnsureCapacity(newCapacity);
-				_waitingTasksMask.EnsureCapacity(newCapacity);
+				_loadingTasksMask.EnsureElementsCapacity(newCapacity);
+				_waitingTasksMask.EnsureElementsCapacity(newCapacity);
 			}
 
 			var loadingTaskIndex = (uint)_loadingTasksMask.FirstZero();
@@ -197,11 +199,11 @@ namespace KVD.Prometheus
 
 		void InitCallbacks()
 		{
-			_callbacks = new Callback[256];
-			_loadingTasks = new(256, Allocator.Domain);
-			_loadingTasksVersion = new(256, Allocator.Domain);
-			_loadingTasksMask = new UnsafeBitmask(256, Allocator.Domain);
-			_waitingTasksMask = new UnsafeBitmask(256, Allocator.Domain);
+			_callbacks = new Callback[PreAllocSize];
+			_loadingTasks = new(PreAllocSize, Allocator.Domain);
+			_loadingTasksVersion = new(PreAllocSize, Allocator.Domain);
+			_loadingTasksMask = new UnsafeBitmask(PreAllocSize, Allocator.Domain);
+			_waitingTasksMask = new UnsafeBitmask(PreAllocSize, Allocator.Domain);
 		}
 
 		void UpdateCallbacks()

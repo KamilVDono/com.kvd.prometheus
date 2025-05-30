@@ -270,8 +270,8 @@ namespace KVD.Prometheus
 				Array.Resize(ref _editorCallbacks, (int)newCapacity);
 				UnsafeArray<LoadingTaskData>.Resize(ref _editorLoadingTasks, newCapacity);
 				UnsafeArray<byte>.Resize(ref _editorLoadingTasksVersion, newCapacity);
-				_editorLoadingTasksMask.EnsureCapacity(newCapacity);
-				_editorWaitingTasksMask.EnsureCapacity(newCapacity);
+				_editorLoadingTasksMask.EnsureElementsCapacity(newCapacity);
+				_editorWaitingTasksMask.EnsureElementsCapacity(newCapacity);
 			}
 
 			var loadingTaskIndex = (uint)_editorLoadingTasksMask.FirstZero();

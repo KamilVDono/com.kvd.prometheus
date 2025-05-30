@@ -274,7 +274,7 @@ namespace KVD.Prometheus
 				var waitingForUnloading = 0;
 				var waitingForUnmounting = 0;
 
-				foreach (var load in editorAccess.ContentFileLoads)
+				foreach (var load in editorAccess.ContentFileLoads.EnumerateOccupied())
 				{
 					if (load.state == PrometheusLoader.State.WaitingForMounting)
 					{
@@ -315,16 +315,16 @@ namespace KVD.Prometheus
 
 		unsafe void DrawLoaded(PrometheusLoader.EditorAccess editorAccess)
 		{
-			_loadedExpanded = UniversalGUILayout.Foldout(_loadedExpanded, $"Loaded {editorAccess.OccupiedContentFileIndices.CountOnes()}:");
+			_loadedExpanded = UniversalGUILayout.Foldout(_loadedExpanded, $"Loaded {editorAccess.ContentFileLoads.occupied.CountOnes()}:");
 
 			if (_loadedExpanded)
 			{
-				_expandedLoaded.EnsureCapacity(editorAccess.OccupiedContentFileIndices.ElementsLength);
+				_expandedLoaded.EnsureElementsCapacity(editorAccess.ContentFileLoads.Length);
 
 				UniversalGUILayout.BeginIndent();
 				_fileManagementScroll = GUILayout.BeginScrollView(_fileManagementScroll, GUILayout.Height(300));
 
-				editorAccess.OccupiedContentFileIndices.ToIndicesOfOneArray(Allocator.Temp, out var occupiedIndices);
+				editorAccess.ContentFileLoads.occupied.ToIndicesOfOneArray(Allocator.Temp, out var occupiedIndices);
 				// TODO: Not sequence equal but unordered set equal
 				if (occupiedIndices.SequenceEqual(_loadedIndicesCache) == false)
 				{

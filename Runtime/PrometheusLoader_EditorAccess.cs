@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using KVD.Utils.DataStructures;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Content;
 using Unity.IO.Archive;
 using Unity.Loading;
@@ -22,10 +23,9 @@ namespace KVD.Prometheus
 			public byte OngoingContentUnloadingCount => _loader._ongoingContentUnloadingCount;
 
 			public ref NativeHashMap<SerializableGuid, uint> ContentFile2Index => ref _loader._contentFile2Index;
-			public ref UnsafeArray<ContentFileLoad> ContentFileLoads => ref _loader._contentFileLoads;
-			public ref UnsafeBitmask OccupiedContentFileIndices => ref _loader._occupiedSlots;
-			public ref UnsafeBitmask ToRegister => ref _loader._toRegister;
-			public ref UnsafeBitmask ToUnregister => ref _loader._toUnregister;
+			public ref OccupiedArray<ContentFileLoad> ContentFileLoads => ref _loader._contentFileLoads;
+			public ref UnsafeList<uint> ToRegister => ref _loader._toRegister;
+			public ref UnsafeList<uint> ToUnregister => ref _loader._toUnregister;
 
 			public ref bool FileManagedPaused => ref _loader._fileManagedUpdatePaused;
 

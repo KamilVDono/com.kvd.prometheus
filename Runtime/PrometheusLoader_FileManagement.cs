@@ -1,12 +1,15 @@
 ﻿using System.IO;
 using KVD.Utils.DataStructures;
+using KVD.Utils.Extensions;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.IO.Archive;
 using Unity.Loading;
+using Unity.Mathematics;
 
 namespace KVD.Prometheus
 {
-	public partial class PrometheusLoader
+	public unsafe partial class PrometheusLoader
 	{
 		const byte MaxOngoingMountingCount = 20;
 		const byte MaxOngoingContentLoadingCount = 10;
@@ -14,11 +17,11 @@ namespace KVD.Prometheus
 		const byte MaxOngoingContentUnloadingCount = 10;
 
 		NativeHashMap<SerializableGuid, uint> _contentFile2Index;
-		UnsafeArray<ContentFileLoad> _contentFileLoads;
 
-		UnsafeBitmask _occupiedSlots;
-		UnsafeBitmask _toRegister;
-		UnsafeBitmask _toUnregister;
+		OccupiedArray<ContentFileLoad> _contentFileLoads;
+
+		UnsafeList<uint> _toRegister;
+		UnsafeList<uint> _toUnregister;
 
 		byte _ongoingMountingCount;
 		byte _ongoingContentLoadingCount;
@@ -29,12 +32,11 @@ namespace KVD.Prometheus
 
 		void InitFileManagement()
 		{
-			var contentFilesCount = (uint)_prometheusMapping.ContentFile2Dependencies.Count;
+			var contentFilesCount = (uint)math.max(_prometheusMapping.ContentFile2Dependencies.Count * 0.1f, 100f);
 			_contentFile2Index = new((int)contentFilesCount, Allocator.Domain);
 			_contentFileLoads = new(contentFilesCount, Allocator.Domain);
-			_occupiedSlots = new(contentFilesCount, Allocator.Domain);
-			_toRegister = new(contentFilesCount, Allocator.Domain);
-			_toUnregister = new(contentFilesCount, Allocator.Domain);
+			_toRegister = new(24, Allocator.Domain);
+			_toUnregister = new(24, Allocator.Domain);
 		}
 
 		uint StartLoading(SerializableGuid contentFileGuid)
@@ -56,7 +58,7 @@ namespace KVD.Prometheus
 				ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
 				var state = loadedContentFile.state;
 
-				_toUnregister.Down(loadingIndex);
+				_toUnregister.RemoveSwapBack(loadingIndex);
 
 				if (state == State.WaitingToStartUnloading)
 				{
@@ -64,7 +66,7 @@ namespace KVD.Prometheus
 				}
 				else if (state == State.Unloading)
 				{
-					_toRegister.Up(loadingIndex);
+					_toRegister.Add(loadingIndex);
 				}
 				else if (state == State.WaitingForUnmount)
 				{
@@ -72,20 +74,20 @@ namespace KVD.Prometheus
 				}
 				else if (state == State.Unmounting)
 				{
-					_toRegister.Up(loadingIndex);
+					_toRegister.Add(loadingIndex);
 				}
 			}
 			else
 			{
-				loadingIndex = (uint)_occupiedSlots.FirstZero();
-				_occupiedSlots.Up(loadingIndex);
-
-				_contentFileLoads[loadingIndex] = new()
+				var fileLoad = new ContentFileLoad
 				{
 					state = State.WaitingForMounting,
 					contentFileGuid = contentFileGuid,
 					referenceCount = 1,
 				};
+
+				loadingIndex = _contentFileLoads.Insert(fileLoad);
+
 				_contentFile2Index.Add(contentFileGuid, loadingIndex);
 			}
 
@@ -111,7 +113,7 @@ namespace KVD.Prometheus
 
 			if (loadedContentFile.referenceCount == 0)
 			{
-				_toRegister.Down(loadingIndex);
+				_toRegister.RemoveSwapBack(loadingIndex);
 
 				if (loadedContentFile.state == State.WaitingForMounting)
 				{
@@ -120,7 +122,7 @@ namespace KVD.Prometheus
 				}
 				else if (loadedContentFile.state == State.Mounting)
 				{
-					_toUnregister.Up(loadingIndex);
+					_toUnregister.Add(loadingIndex);
 				}
 				else if (loadedContentFile.state == State.WaitingForDependencies)
 				{
@@ -128,7 +130,7 @@ namespace KVD.Prometheus
 				}
 				else if (loadedContentFile.state == State.Loading)
 				{
-					_toUnregister.Up(loadingIndex);
+					_toUnregister.Add(loadingIndex);
 				}
 				else if (loadedContentFile.state == State.ErrorArchive)
 				{
@@ -218,9 +220,8 @@ namespace KVD.Prometheus
 			// Start mounting
 			if (_ongoingMountingCount < MaxOngoingMountingCount)
 			{
-				foreach (var indexToMount in _occupiedSlots.EnumerateOnes())
+				foreach (ref var load in _contentFileLoads.EnumerateOccupied())
 				{
-					ref var load = ref _contentFileLoads[indexToMount];
 					if (load.state != State.WaitingForMounting)
 					{
 						continue;
@@ -240,9 +241,9 @@ namespace KVD.Prometheus
 			}
 
 			// Start loading
-			foreach (uint indexToFinishMount in _occupiedSlots.EnumerateOnes())
+			foreach (var (loadPtr, index) in _contentFileLoads.EnumerateOccupiedIndexed())
 			{
-				ref var load = ref _contentFileLoads[indexToFinishMount];
+				ref var load = ref *loadPtr;
 				if (load.state != State.Mounting)
 				{
 					continue;
@@ -254,10 +255,11 @@ namespace KVD.Prometheus
 				}
 
 				--_ongoingMountingCount;
-				if (_toUnregister[indexToFinishMount])
+				var toUnregisterIndex = _toUnregister.IndexOf(index);
+				if (toUnregisterIndex >= 0)
 				{
 					load.state = State.WaitingForUnmount;
-					_toUnregister.Down(indexToFinishMount);
+					_toUnregister.RemoveAtSwapBack(toUnregisterIndex);
 				}
 				else
 				{
@@ -276,9 +278,8 @@ namespace KVD.Prometheus
 			if (_ongoingContentLoadingCount < MaxOngoingContentLoadingCount)
 			{
 				var dependencies = new NativeList<ContentFile>(12, Allocator.Temp);
-				foreach (var indexToLoad in _occupiedSlots.EnumerateOnes())
+				foreach (ref var load in _contentFileLoads.EnumerateOccupied())
 				{
-					ref var load = ref _contentFileLoads[indexToLoad];
 					if (load.state != State.WaitingForDependencies)
 					{
 						continue;
@@ -324,9 +325,9 @@ namespace KVD.Prometheus
 			}
 
 			// Finish loading
-			foreach (uint indexToFinishLoading in _occupiedSlots.EnumerateOnes())
+			foreach (var (loadPtr, index) in _contentFileLoads.EnumerateOccupiedIndexed())
 			{
-				ref var load = ref _contentFileLoads[indexToFinishLoading];
+				ref var load = ref *loadPtr;
 				if (load.state != State.Loading)
 				{
 					continue;
@@ -338,10 +339,11 @@ namespace KVD.Prometheus
 				}
 
 				--_ongoingContentLoadingCount;
-				if (_toUnregister[indexToFinishLoading])
+				var toUnregisterIndex = _toUnregister.IndexOf(index);
+				if (toUnregisterIndex >= 0)
 				{
 					load.state = State.WaitingToStartUnloading;
-					_toUnregister.Down(indexToFinishLoading);
+					_toUnregister.RemoveAtSwapBack(toUnregisterIndex);
 				}
 				else
 				{
@@ -359,9 +361,8 @@ namespace KVD.Prometheus
 			// Start unloading
 			if (_ongoingContentUnloadingCount < MaxOngoingContentUnloadingCount)
 			{
-				foreach (var indexToUnload in _occupiedSlots.EnumerateOnes())
+				foreach (ref var load in _contentFileLoads.EnumerateOccupied())
 				{
-					ref var load = ref _contentFileLoads[indexToUnload];
 					if (load.state != State.WaitingToStartUnloading)
 					{
 						continue;
@@ -398,24 +399,25 @@ namespace KVD.Prometheus
 			}
 
 			// Finish unloading
-			foreach (var indexToFinishUnloading in _occupiedSlots.EnumerateOnes())
+			foreach (var (load, index) in _contentFileLoads.EnumerateOccupiedIndexed())
 			{
-				ref var load = ref _contentFileLoads[indexToFinishUnloading];
-				if (load.state != State.Unloading)
+				ref var loadRef = ref *load;
+				if (loadRef.state != State.Unloading)
 				{
 					continue;
 				}
 
-				if (load.unloadHandle.IsCompleted)
+				if (loadRef.unloadHandle.IsCompleted)
 				{
-					if (_toRegister[indexToFinishUnloading])
+					var toRegisterIndex = _toRegister.IndexOf(index);
+					if (toRegisterIndex >= 0)
 					{
-						load.state = State.WaitingForDependencies;
-						_toRegister.Down(indexToFinishUnloading);
+						loadRef.state = State.WaitingForDependencies;
+						_toRegister.RemoveAtSwapBack(toRegisterIndex);
 					}
 					else
 					{
-						load.state = State.WaitingForUnmount;
+						loadRef.state = State.WaitingForUnmount;
 					}
 
 					--_ongoingContentUnloadingCount;
@@ -423,24 +425,24 @@ namespace KVD.Prometheus
 			}
 
 			// Finish unmounting
-			foreach (var indexToFinishUnmounting in _occupiedSlots.EnumerateOnes())
+			foreach (var (load, index) in _contentFileLoads.EnumerateOccupiedIndexed())
 			{
-				ref var load = ref _contentFileLoads[indexToFinishUnmounting];
-				if (load.state != State.Unmounting)
+				ref var loadRef = ref *load;
+				if (loadRef.state != State.Unmounting)
 				{
 					continue;
 				}
 
-				if (_toRegister[indexToFinishUnmounting])
+				var toRegisterIndex = _toRegister.IndexOf(index);
+				if (toRegisterIndex >= 0)
 				{
-					load.state = State.WaitingForMounting;
-					_toRegister.Down(indexToFinishUnmounting);
+					loadRef.state = State.WaitingForMounting;
+					_toRegister.RemoveAtSwapBack(toRegisterIndex);
 				}
 				else
 				{
-					_occupiedSlots.Down(indexToFinishUnmounting);
-					_contentFile2Index.Remove(load.contentFileGuid);
-					load = default;
+					_contentFile2Index.Remove(loadRef.contentFileGuid);
+					_contentFileLoads.Release(index);
 				}
 
 				--_ongoingUnmountingCount;
@@ -449,9 +451,8 @@ namespace KVD.Prometheus
 			// Start unmounting
 			if (_ongoingUnmountingCount < MaxOngoingUnmountingCount)
 			{
-				foreach (var indexToUnmount in _occupiedSlots.EnumerateOnes())
+				foreach (ref var load in _contentFileLoads.EnumerateOccupied())
 				{
-					ref var load = ref _contentFileLoads[indexToUnmount];
 					if (load.state != State.WaitingForUnmount)
 					{
 						continue;
@@ -477,16 +478,21 @@ namespace KVD.Prometheus
 			return load.state is State.Loaded;
 		}
 
+		void Resize()
+		{
+			var newSize = _contentFileLoads.Length * 2;
+			_contentFileLoads.Resize(newSize, NativeArrayOptions.UninitializedMemory);
+		}
+
 		public struct ContentFileLoad
 		{
 			public State state;
+			public int referenceCount;
 			public SerializableGuid contentFileGuid;
 
 			public ContentFile contentFile;
 			public ArchiveHandle archiveHandle;
 			public ContentFileUnloadHandle unloadHandle;
-
-			public int referenceCount;
 
 			public void Deconstruct(out ContentFile contentFile, out ArchiveHandle archiveHandle)
 			{
