@@ -1,7 +1,6 @@
 ﻿using System.IO;
 using KVD.Utils.DataStructures;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Content;
 using Unity.IO.Archive;
 using Unity.Loading;
@@ -24,8 +23,6 @@ namespace KVD.Prometheus
 
 			public ref NativeHashMap<SerializableGuid, uint> ContentFile2Index => ref _loader._contentFile2Index;
 			public ref OccupiedArray<ContentFileLoad> ContentFileLoads => ref _loader._contentFileLoads;
-			public ref UnsafeList<uint> ToRegister => ref _loader._toRegister;
-			public ref UnsafeList<uint> ToUnregister => ref _loader._toUnregister;
 
 			public ref bool FileManagedPaused => ref _loader._fileManagedUpdatePaused;
 
@@ -59,7 +56,7 @@ namespace KVD.Prometheus
 				}
 
 				var load = ContentFileLoads[loadingIndex];
-				if (load.state == State.WaitingForMounting)
+				if (load.State == State.WaitingForMounting)
 				{
 					var archiveFilePath = Path.Combine(PrometheusPersistence.ArchivesDirectoryPath, contentFileGuid.ToString("N"));
 					load.archiveHandle = ArchiveFileInterface.MountAsync(ContentNamespace, archiveFilePath, string.Empty);

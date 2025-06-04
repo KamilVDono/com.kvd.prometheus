@@ -77,7 +77,7 @@ namespace KVD.Prometheus
 				},
 				ImguiTableUtils.TextColumn<uint>("ID", i => i.ToString(), 48),
 				ImguiTableUtils.TextColumn<uint>("Content file", i => editorAccess.ContentFileLoads[i].contentFileGuid.ToString("N"), 296),
-				ImguiTableUtils.TextColumn<uint>("State", i => editorAccess.ContentFileLoads[i].state.ToString(), 92),
+				ImguiTableUtils.TextColumn<uint>("State", i => editorAccess.ContentFileLoads[i].State.ToString(), 92),
 				ImguiTable<uint>.ColumnDefinition.Create("Ref count", 92, DrawRefCount, i => editorAccess.ContentFileLoads[i].referenceCount, ImguiTableUtils.FloatDrawer),
 				ImguiTable<uint>.ColumnDefinition.Create("Inspect", 64, DrawFileInspect, i => _expandedLoaded[i] ? 1 : 0, ImguiTableUtils.FloatDrawer, FileInspectSort));
 
@@ -166,7 +166,7 @@ namespace KVD.Prometheus
 				return "Free";
 			}
 			ref var load = ref editorAccess.ContentFileLoads[contentFileIndex];
-			return load.state.ToStringFast();
+			return load.State.ToStringFast();
 		}
 
 		static string AssetLoadButtonText(PrometheusIdentifier prometheusIdentifier)
@@ -191,7 +191,7 @@ namespace KVD.Prometheus
 				return true;
 			}
 			ref var load = ref editorAccess.ContentFileLoads[contentFileIndex];
-			return load.state is PrometheusLoader.State.Loaded or PrometheusLoader.State.ErrorArchive or PrometheusLoader.State.ErrorContentFiles;
+			return load.State is PrometheusLoader.State.Loaded or PrometheusLoader.State.ErrorArchive or PrometheusLoader.State.ErrorContentFiles;
 		}
 
 		static void StartAssetToggle(PrometheusIdentifier prometheusIdentifier)
@@ -276,19 +276,19 @@ namespace KVD.Prometheus
 
 				foreach (var load in editorAccess.ContentFileLoads.EnumerateOccupied())
 				{
-					if (load.state == PrometheusLoader.State.WaitingForMounting)
+					if (load.State == PrometheusLoader.State.WaitingForMounting)
 					{
 						++waitingForMounting;
 					}
-					else if (load.state == PrometheusLoader.State.WaitingForDependencies)
+					else if (load.State == PrometheusLoader.State.WaitingForDependencies)
 					{
 						++waitingForDependencies;
 					}
-					else if (load.state == PrometheusLoader.State.WaitingToStartUnloading)
+					else if (load.State == PrometheusLoader.State.WaitingToStartUnloading)
 					{
 						++waitingForUnloading;
 					}
-					else if (load.state == PrometheusLoader.State.WaitingForUnmount)
+					else if (load.State == PrometheusLoader.State.WaitingForUnmount)
 					{
 						++waitingForUnmounting;
 					}
@@ -357,7 +357,7 @@ namespace KVD.Prometheus
 				}
 				GUILayout.EndHorizontal();
 				UniversalGUILayout.BeginIndent();
-				if (load.state == PrometheusLoader.State.Loaded)
+				if (load.State == PrometheusLoader.State.Loaded)
 				{
 					var objects = load.contentFile.GetObjects();
 					GUI.enabled = false;
