@@ -35,13 +35,14 @@ namespace KVD.Prometheus
 			_contentFileLoads = new(contentFilesCount, Allocator.Domain);
 		}
 
-		uint StartLoading(SerializableGuid contentFileGuid)
+		uint StartLoading(SerializableGuid contentFileGuid, byte priority)
 		{
 			var alreadyRegistered = _contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex);
 			if (alreadyRegistered)
 			{
 				ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
 				loadedContentFile.referenceCount++;
+				loadedContentFile.Priority = (byte)math.max((int)priority, (int)loadedContentFile.Priority);
 
 				if (loadedContentFile.referenceCount > 1)
 				{
@@ -81,6 +82,7 @@ namespace KVD.Prometheus
 					contentFileGuid = contentFileGuid,
 					referenceCount = 1,
 				};
+				fileLoad.Priority = priority;
 
 				loadingIndex = _contentFileLoads.Insert(fileLoad);
 
@@ -94,14 +96,14 @@ namespace KVD.Prometheus
 				var requirementGuid = requirements[i];
 				if (requirementGuid != default)
 				{
-					StartLoading(requirementGuid);
+					StartLoading(requirementGuid, priority);
 				}
 			}
 
 			return loadingIndex;
 		}
 
-		void StartUnloading(SerializableGuid contentFileGuid)
+		void StartUnloading(SerializableGuid contentFileGuid, byte priority)
 		{
 			var loadingIndex = _contentFile2Index[contentFileGuid];
 			ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
@@ -109,6 +111,7 @@ namespace KVD.Prometheus
 
 			if (loadedContentFile.referenceCount == 0)
 			{
+				loadedContentFile.Priority = (byte)math.max((int)priority, (int)loadedContentFile.Priority);
 				loadedContentFile.ChangeRequest &= ~ChangeRequest.ToRegister;
 
 				if (loadedContentFile.State == State.WaitingForMounting)
@@ -146,7 +149,7 @@ namespace KVD.Prometheus
 				{
 					if (requirement != default)
 					{
-						StartUnloading(requirement);
+						StartUnloading(requirement, priority);
 					}
 				}
 			}
@@ -526,11 +529,11 @@ namespace KVD.Prometheus
 				get => (State)(byte)(compressedData & 0b1111);
 				set => compressedData = (compressedData & ~0b1111) | (byte)value;
 			}
-			
+
 			public ChangeRequest ChangeRequest
 			{
-				get => (ChangeRequest)(byte)((referenceCount >> 4) & 0b11);
-				set => referenceCount = (referenceCount & ~(0b11 << 4)) | ((byte)value << 4);
+				get => (ChangeRequest)(byte)((compressedData >> 4) & 0b11);
+				set => compressedData = (compressedData & ~(0b11 << 4)) | ((byte)value << 4);
 			}
 
 			public byte Priority

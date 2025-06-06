@@ -160,30 +160,14 @@ namespace KVD.Prometheus.Editor
 				return false;
 			}
 
-			if (_assetsSet.Contains(asset))
+			if (!_assetsSet.Add(asset))
 			{
 				return false;
 			}
 
-			CheckAssetType(asset);
-			_assetsSet.Add(asset);
 			Array.Resize(ref assets, assets.Length+1);
 			assets[^1] = asset;
 			return true;
-		}
-
-		void CheckAssetType(Object asset)
-		{
-			var path = AssetDatabase.GetAssetPath(asset);
-			var mainAsset = AssetDatabase.LoadMainAssetAtPath(path);
-			if (asset == mainAsset && mainAsset is GameObject go)
-			{
-				var prefabType = PrefabUtility.GetPrefabAssetType(go);
-				if (prefabType == PrefabAssetType.Model)
-				{
-					throw new ArgumentException($"Cannot add model {asset.name} to {nameof(PrometheusAssets)}. It will cause issues in the content loading");
-				}
-			}
 		}
 
 		public T EditorAsset<T>(PrometheusIdentifier identifier) where T : Object
@@ -204,7 +188,7 @@ namespace KVD.Prometheus.Editor
 		[ContextMenu("Bake")]
 		void Bake()
 		{
-			PrometheusCreator.BuildPrometheus();
+			PrometheusBuilder.BuildPrometheus();
 		}
 
 		#region Singleton

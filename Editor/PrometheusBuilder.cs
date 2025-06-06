@@ -14,7 +14,7 @@ using BuildCompression = UnityEngine.BuildCompression;
 
 namespace KVD.Prometheus.Editor
 {
-	public static class PrometheusCreator
+	public static class PrometheusBuilder
 	{
 		[MenuItem(KVDConsts.MenuItemPrefix+"/Prometheus/Build Prometheus", false, 10)]
 		public static void BuildPrometheus()

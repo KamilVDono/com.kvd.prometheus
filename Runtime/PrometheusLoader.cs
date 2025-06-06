@@ -2,6 +2,7 @@
 using KVD.Utils;
 using KVD.Utils.DataStructures;
 using Unity.Content;
+using Unity.Mathematics;
 using UnityEngine.PlayerLoop;
 using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
@@ -155,23 +156,12 @@ namespace KVD.Prometheus
 			return IsSuccessfullyLoaded(_contentFileLoads[loadingIndex]);
 		}
 
-		public void StartAssetLoading(PrometheusIdentifier prometheusIdentifier)
+		public void StartAssetLoading(PrometheusIdentifier prometheusIdentifier, Priority priority = Priority.Normal)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
-			{
-				var availableInEditor = false;
-				EditorIsAssetAvailable(prometheusIdentifier, ref availableInEditor);
-				if (!availableInEditor)
-				{
-					Debug.LogError($"Asset {prometheusIdentifier.assetGuid}[{prometheusIdentifier.localIdentifier}] not found in Prometheus");
-				}
-				return;
-			}
-
-			StartLoading(contentFileGuid);
+			StartAssetLoading(prometheusIdentifier, (byte)priority);
 		}
 
-		public void StartAssetUnloading(PrometheusIdentifier prometheusIdentifier)
+		public void StartAssetLoading(PrometheusIdentifier prometheusIdentifier, byte priority)
 		{
 			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
@@ -184,7 +174,28 @@ namespace KVD.Prometheus
 				return;
 			}
 
-			StartUnloading(contentFileGuid);
+			StartLoading(contentFileGuid, priority);
+		}
+
+		public void StartAssetUnloading(PrometheusIdentifier prometheusIdentifier, Priority priority = Priority.Normal)
+		{
+			StartAssetUnloading(prometheusIdentifier, (byte)priority);
+		}
+
+		public void StartAssetUnloading(PrometheusIdentifier prometheusIdentifier, byte priority)
+		{
+			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			{
+				var availableInEditor = false;
+				EditorIsAssetAvailable(prometheusIdentifier, ref availableInEditor);
+				if (!availableInEditor)
+				{
+					Debug.LogError($"Asset {prometheusIdentifier.assetGuid}[{prometheusIdentifier.localIdentifier}] not found in Prometheus");
+				}
+				return;
+			}
+
+			StartUnloading(contentFileGuid, priority);
 		}
 
 		public bool CanLoadAsset(PrometheusIdentifier prometheusIdentifier)
@@ -235,9 +246,18 @@ namespace KVD.Prometheus
 
 			return prometheusData;
 		}
+
+		public enum Priority : byte
+		{
+			Background = 8,
+			Low = 32,
+			Normal = 64,
+			High = 128,
+			Urgent = 240,
+		}
 	}
 
-	static class PrometheusStateExt
+	static class PrometheusExt
 	{
 		public static bool IsLoading(this PrometheusLoader.State state)
 		{
@@ -258,6 +278,18 @@ namespace KVD.Prometheus
 		public static bool IsLoaded(this PrometheusLoader.State state)
 		{
 			return state is PrometheusLoader.State.Loaded or PrometheusLoader.State.ErrorArchive or PrometheusLoader.State.ErrorContentFiles;
+		}
+
+		public static byte Above(this PrometheusLoader.Priority priority, byte above = 1)
+		{
+			var newPriority = (byte)priority + (int)above;
+			return (byte)math.min(newPriority, byte.MaxValue);
+		}
+
+		public static byte Below(this PrometheusLoader.Priority priority, byte below = 1)
+		{
+			var newPriority = (byte)priority - (int)below;
+			return (byte)math.max(newPriority, byte.MinValue);
 		}
 	}
 }

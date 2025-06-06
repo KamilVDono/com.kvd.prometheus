@@ -1,9 +1,6 @@
-﻿using System.IO;
-using KVD.Utils.DataStructures;
+﻿using KVD.Utils.DataStructures;
 using Unity.Collections;
 using Unity.Content;
-using Unity.IO.Archive;
-using Unity.Loading;
 
 namespace KVD.Prometheus
 {
@@ -34,36 +31,6 @@ namespace KVD.Prometheus
 			public EditorAccess(PrometheusLoader loader)
 			{
 				_loader = loader;
-			}
-
-			public ContentFile ForceLoaded(SerializableGuid contentFileGuid)
-			{
-				if (!_loader._contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
-				{
-					loadingIndex = _loader.StartLoading(contentFileGuid);
-				}
-				ref var load = ref ContentFileLoads[loadingIndex];
-				_loader.ForceLoad(ref load);
-
-				return load.contentFile;
-			}
-
-			public string MountPath(SerializableGuid contentFileGuid)
-			{
-				if (!_loader._contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
-				{
-					loadingIndex = _loader.StartLoading(contentFileGuid);
-				}
-
-				var load = ContentFileLoads[loadingIndex];
-				if (load.State == State.WaitingForMounting)
-				{
-					var archiveFilePath = Path.Combine(PrometheusPersistence.ArchivesDirectoryPath, contentFileGuid.ToString("N"));
-					load.archiveHandle = ArchiveFileInterface.MountAsync(ContentNamespace, archiveFilePath, string.Empty);
-					load.archiveHandle.JobHandle.Complete();
-				}
-
-				return load.archiveHandle.GetMountPath();
 			}
 		}
 	}

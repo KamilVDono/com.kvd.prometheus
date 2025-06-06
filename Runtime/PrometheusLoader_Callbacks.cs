@@ -17,18 +17,28 @@ namespace KVD.Prometheus
 		UnsafeBitmask _loadingTasksMask;
 		UnsafeBitmask _waitingTasksMask;
 
-		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier)
+		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, Priority priority = Priority.Normal)
 		{
-			return LoadAssetAsync(prometheusIdentifier, null, false);
+			return LoadAssetAsync(prometheusIdentifier, (byte)priority);
 		}
 
-		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, Callback callback, bool delayedCallbacks)
+		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, byte priority)
+		{
+			return LoadAssetAsync(prometheusIdentifier, CallbackSetup.Empty, priority);
+		}
+
+		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, in CallbackSetup callbackSetup, Priority priority = Priority.Normal)
+		{
+			return LoadAssetAsync(prometheusIdentifier, callbackSetup, (byte)priority);
+		}
+
+		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, in CallbackSetup callbackSetup, byte priority)
 		{
 			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var editorHasAsset = false;
 				var editorResult = Option<LoadingTaskHandle>.None;
-				EditorLoadAssetAsync(prometheusIdentifier, callback, delayedCallbacks, ref editorHasAsset, ref editorResult);
+				EditorLoadAssetAsync(prometheusIdentifier, callbackSetup.callback, callbackSetup.delayedCallbacks, ref editorHasAsset, ref editorResult);
 				if (editorHasAsset)
 				{
 					return editorResult;
@@ -40,7 +50,7 @@ namespace KVD.Prometheus
 				}
 			}
 
-			var loadingIndex = StartLoading(contentFileGuid);
+			var loadingIndex = StartLoading(contentFileGuid, priority);
 
 			// Resize buffers if not enough space
 			if (_loadingTasksMask.AllSet())
@@ -64,13 +74,13 @@ namespace KVD.Prometheus
 			var handle = LoadingTaskHandle.New(loadingTaskIndex, version);
 
 			var contentFileLoad = _contentFileLoads[loadingIndex];
-			if (!delayedCallbacks && IsLoaded(contentFileLoad))
+			if (!callbackSetup.delayedCallbacks && IsLoaded(contentFileLoad))
 			{
-				callback?.Invoke(handle);
+				callbackSetup.callback?.Invoke(handle);
 			}
 			else
 			{
-				_callbacks[loadingTaskIndex] = callback;
+				_callbacks[loadingTaskIndex] = callbackSetup.callback;
 				_waitingTasksMask.Up(loadingTaskIndex);
 			}
 
@@ -380,6 +390,22 @@ namespace KVD.Prometheus
 		public struct LoadingTaskData
 		{
 			public PrometheusIdentifier prometheusIdentifier;
+		}
+
+		public readonly ref struct CallbackSetup
+		{
+			public readonly Callback callback;
+			public readonly bool delayedCallbacks;
+
+			public static CallbackSetup Empty => new(null, false);
+			public static CallbackSetup Delayed(Callback callback) => new(callback, true);
+			public static CallbackSetup Immediate(Callback callback) => new(callback, false);
+
+			CallbackSetup(Callback callback, bool delayedCallbacks)
+			{
+				this.callback = callback;
+				this.delayedCallbacks = delayedCallbacks;
+			}
 		}
 	}
 }
