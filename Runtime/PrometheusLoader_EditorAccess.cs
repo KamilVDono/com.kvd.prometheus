@@ -13,13 +13,13 @@ namespace KVD.Prometheus
 			public PrometheusMapping PrometheusMapping => _loader._prometheusMapping;
 			public ContentNamespace ContentNamespace => _loader._contentNamespace;
 
-			public byte OngoingMountingCount => _loader._ongoingMountingCount;
-			public byte OngoingContentLoadingCount => _loader._ongoingContentLoadingCount;
-			public byte OngoingUnmountingCount => _loader._ongoingUnmountingCount;
-			public byte OngoingContentUnloadingCount => _loader._ongoingContentUnloadingCount;
+			public byte OngoingMountingCount => _loader._unmanaged._ongoingMountingCount;
+			public byte OngoingContentLoadingCount => _loader._unmanaged._ongoingContentLoadingCount;
+			public byte OngoingUnmountingCount => _loader._unmanaged._ongoingUnmountingCount;
+			public byte OngoingContentUnloadingCount => _loader._unmanaged._ongoingContentUnloadingCount;
 
-			public ref NativeHashMap<SerializableGuid, uint> ContentFile2Index => ref _loader._contentFile2Index;
-			public ref OccupiedArray<ContentFileLoad> ContentFileLoads => ref _loader._contentFileLoads;
+			public ref NativeHashMap<SerializableGuid, uint> ContentFile2Index => ref _loader._unmanaged._contentFile2Index;
+			public ref OccupiedArray<ContentFileLoad> ContentFileLoads => ref _loader._unmanaged._contentFileLoads;
 
 			public ref bool FileManagedPaused => ref _loader._fileManagedUpdatePaused;
 

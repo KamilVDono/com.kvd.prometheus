@@ -43,10 +43,13 @@ namespace KVD.Prometheus.Editor
 			_fileIcon = EditorGUIUtility.FindTexture("d_Project");
 			_fileIconContent = new(_fileIcon, "Browse for a file");
 
-			_prometheusMapping = PrometheusMapping.Fresh();
 			if (File.Exists(PrometheusPersistence.MappingsFilePath))
 			{
-				_prometheusMapping.Deserialize(PrometheusPersistence.MappingsFilePath);
+				_prometheusMapping = PrometheusMapping.Deserialize(PrometheusPersistence.MappingsFilePath, Allocator.Persistent);
+			}
+			else
+			{
+				_prometheusMapping = PrometheusMapping.Fresh(Allocator.Persistent);
 			}
 
 			_contentNamespace = ContentNamespace.GetOrCreateNamespace("ContentExplore");
@@ -73,6 +76,8 @@ namespace KVD.Prometheus.Editor
 			_deleteIcon = null;
 			_fileIcon = null;
 			_fileIconContent = null;
+
+			_prometheusMapping.Dispose();
 		}
 
 		public void OnGUI()
@@ -160,7 +165,7 @@ namespace KVD.Prometheus.Editor
 				EditorGUILayout.LabelField("", GUI.skin.horizontalSlider);
 
 				// Dependencies
-				var hasDependencies = _prometheusMapping.ContentFile2Dependencies.TryGetValue(guid, out var dependencies);
+				var hasDependencies = _prometheusMapping.contentFile2Dependencies.TryGetValue(guid, out var dependencies);
 				var expandedDependencies = hasDependencies && _expandedDependencies.Contains(handle.fileName);
 				if (hasDependencies)
 				{
@@ -200,7 +205,7 @@ namespace KVD.Prometheus.Editor
 				EditorGUILayout.LabelField("", GUI.skin.horizontalSlider);
 
 				// Dependants
-				var hasDependants = _prometheusMapping.ContentFile2Dependants.TryGetValue(guid, out var dependants);
+				var hasDependants = _prometheusMapping.contentFile2Dependants.TryGetValue(guid, out var dependants);
 				var expandedDependants = hasDependants && _expandedDependants.Contains(handle.fileName);
 				if (hasDependants)
 				{
@@ -284,9 +289,9 @@ namespace KVD.Prometheus.Editor
 
 			var guid = new SerializableGuid(fileName);
 			ContentFile contentFile = default;
-			if (_prometheusMapping.ContentFile2Dependencies.TryGetValue(guid, out var dependencies))
+			if (_prometheusMapping.contentFile2Dependencies.TryGetValue(guid, out var dependencies))
 			{
-				var deps = new NativeArray<ContentFile>(dependencies.Length, Allocator.Temp);
+				var deps = new NativeArray<ContentFile>(dependencies.LengthInt, Allocator.Temp);
 				for (var dependencyIndex = 0; dependencyIndex < dependencies.Length; dependencyIndex++)
 				{
 					var dependencyGuid = dependencies[dependencyIndex];
@@ -326,7 +331,7 @@ namespace KVD.Prometheus.Editor
 					var handle = _localHandles[index];
 					var guid = new SerializableGuid(handle.fileName);
 					var canBeUnloaded = true;
-					if (_prometheusMapping.ContentFile2Dependants.TryGetValue(guid, out var dependants))
+					if (_prometheusMapping.contentFile2Dependants.TryGetValue(guid, out var dependants))
 					{
 						foreach (var dependant in dependants)
 						{

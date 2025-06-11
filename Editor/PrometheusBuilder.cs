@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using KVD.Utils.DataStructures;
 using KVD.Utils.Editor;
+using KVD.Utils.Extensions;
+using Unity.Collections;
 using UnityEditor;
 using UnityEditor.Build.Pipeline;
 using UnityEditor.Build.Pipeline.Tasks;
@@ -99,7 +101,7 @@ namespace KVD.Prometheus.Editor
 			var exitCode = ContentPipeline.BuildAssetBundles(buildParams, buildContent, out var result, tasks, contentIdentifiers, buildLayout);
 			if (exitCode == ReturnCode.Success)
 			{
-				var contentFilesData = PrometheusMapping.Fresh();
+				var contentFilesData = PrometheusMapping.Fresh(Allocator.Temp);
 
 				foreach (var (contentFileGuidStr, b) in result.WriteResults)
 				{
@@ -113,7 +115,7 @@ namespace KVD.Prometheus.Editor
 							return new SerializableGuid(x.filePath);
 						})
 						.ToArray();
-					contentFilesData.ContentFile2Dependencies.Add(contentFileGuid, dependencies);
+					contentFilesData.contentFile2Dependencies.Add(contentFileGuid, new UnsafeArray<SerializableGuid>(dependencies, Allocator.Temp));
 
 					foreach (var dependency in dependencies)
 					{
@@ -121,13 +123,14 @@ namespace KVD.Prometheus.Editor
 						{
 							continue;
 						}
-						if (!contentFilesData.ContentFile2Dependants.TryGetValue(dependency, out var dependants))
+						ref var contentFile2Dependants = ref contentFilesData.contentFile2Dependants;
+						if (!contentFile2Dependants.TryGetValue(dependency, out var dependants))
 						{
-							dependants = Array.Empty<SerializableGuid>();
+							dependants = new UnsafeArray<SerializableGuid>(0, Allocator.Temp);
 						}
-						Array.Resize(ref dependants, dependants.Length+1);
-						dependants[^1] = contentFileGuid;
-						contentFilesData.ContentFile2Dependants[dependency] = dependants;
+						dependants.Resize(dependants.Length+1, NativeArrayOptions.UninitializedMemory);
+						dependants[dependants.Length-1] = contentFileGuid;
+						contentFile2Dependants[dependency] = dependants;
 					}
 				}
 
@@ -138,11 +141,12 @@ namespace KVD.Prometheus.Editor
 					var assetGuid = new SerializableGuid(objectId.guid);
 					var assetIdentifier = new PrometheusIdentifier(assetGuid, objectId.localIdentifierInFile);
 
-					contentFilesData.Asset2ContentFile.Add(assetIdentifier, contentFile);
-					contentFilesData.Asset2LocalIdentifier.Add(assetIdentifier, unchecked((ulong)buildLayout.ObjectToLocalID[objectId]));
+					contentFilesData.asset2ContentFile.Add(assetIdentifier, contentFile);
+					contentFilesData.asset2LocalIdentifier.Add(assetIdentifier, unchecked((ulong)buildLayout.ObjectToLocalID[objectId]));
 				}
 
 				contentFilesData.Serialize(PrometheusPersistence.MappingsFilePath);
+				contentFilesData.Dispose();
 
 				AssetDatabase.SaveAssets();
 				AssetDatabase.Refresh();

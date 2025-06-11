@@ -2,11 +2,14 @@
 using System.IO;
 using KVD.Utils.DataStructures;
 using KVD.Utils.Extensions;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.IO.Archive;
+using Unity.Jobs;
 using Unity.Loading;
 using Unity.Mathematics;
+using Unity.Profiling;
 
 namespace KVD.Prometheus
 {
@@ -17,139 +20,199 @@ namespace KVD.Prometheus
 		const byte MaxOngoingUnmountingCount = 20;
 		const byte MaxOngoingContentUnloadingCount = 10;
 
-		NativeHashMap<SerializableGuid, uint> _contentFile2Index;
+		public static readonly ProfilerMarker UpdateFileManagementMarker = new("PrometheusLoader.UpdateFileManagement");
+		public static readonly ProfilerMarker AllocationsUpdateFileManagementMarker = new("PrometheusLoader.UpdateFileManagement.Allocations");
+		public static readonly ProfilerMarker PopulateUpdateFileManagementMarker = new("PrometheusLoader.UpdateFileManagement.Populate");
+		public static readonly ProfilerMarker StateMachineUpdateFileManagementMarker = new("PrometheusLoader.UpdateFileManagement.StateMachine");
+		public static readonly ProfilerMarker DisposesUpdateFileManagementMarker = new("PrometheusLoader.UpdateFileManagement.Disposes");
 
-		OccupiedArray<ContentFileLoad> _contentFileLoads;
-
-		byte _ongoingMountingCount;
-		byte _ongoingContentLoadingCount;
-		byte _ongoingUnmountingCount;
-		byte _ongoingContentUnloadingCount;
+		Unmanaged _unmanaged;
 
 		bool _fileManagedUpdatePaused;
 
-		void InitFileManagement()
+		/// <summary>
+		/// Unmanaged API for PrometheusLoader. Be aware that this API is not thread-safe and should be used only from the main thread, but can be bursted
+		/// </summary>
+		public ref Unmanaged UnmanagedApi => ref _unmanaged;
+
+		public struct Unmanaged
 		{
-			var contentFilesCount = (uint)math.max(_prometheusMapping.ContentFile2Dependencies.Count * 0.1f, 100f);
-			_contentFile2Index = new((int)contentFilesCount, Allocator.Domain);
-			_contentFileLoads = new(contentFilesCount, Allocator.Domain);
-		}
+			UnsafeHashMap<PrometheusIdentifier, SerializableGuid>* _asset2ContentFile;
+			UnsafeHashMap<SerializableGuid, UnsafeArray<SerializableGuid>>* _contentFile2Dependencies;
 
-		uint StartLoading(SerializableGuid contentFileGuid, byte priority)
-		{
-			var alreadyRegistered = _contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex);
-			if (alreadyRegistered)
+			internal NativeHashMap<SerializableGuid, uint> _contentFile2Index;
+
+			internal OccupiedArray<ContentFileLoad> _contentFileLoads;
+
+			internal byte _ongoingMountingCount;
+			internal byte _ongoingContentLoadingCount;
+			internal byte _ongoingUnmountingCount;
+			internal byte _ongoingContentUnloadingCount;
+
+#if UNITY_EDITOR
+			UnsafeList<ScheduledOperation>* _editorScheduledOperations;
+#endif
+
+			public Unmanaged(PrometheusLoader loader, PrometheusMapping prometheusMapping)
 			{
-				ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
-				loadedContentFile.referenceCount++;
-				loadedContentFile.Priority = (byte)math.max((int)priority, (int)loadedContentFile.Priority);
+				_asset2ContentFile = (UnsafeHashMap<PrometheusIdentifier, SerializableGuid>*)UnsafeUtility.AddressOf(ref prometheusMapping.asset2ContentFile);
+				_contentFile2Dependencies = (UnsafeHashMap<SerializableGuid, UnsafeArray<SerializableGuid>>*)UnsafeUtility.AddressOf(ref prometheusMapping.contentFile2Dependencies);
+				var contentFilesCount = (uint)math.max(prometheusMapping.contentFile2Dependencies.Count*0.1f, 100f);
+				_contentFile2Index = new((int)contentFilesCount, Allocator.Domain);
+				_contentFileLoads = new(contentFilesCount, Allocator.Domain);
 
-				if (loadedContentFile.referenceCount > 1)
-				{
-					return loadingIndex;
-				}
+				_ongoingMountingCount = 0;
+				_ongoingContentLoadingCount = 0;
+				_ongoingUnmountingCount = 0;
+				_ongoingContentUnloadingCount = 0;
+
+#if UNITY_EDITOR
+				_editorScheduledOperations = (UnsafeList<ScheduledOperation>*)UnsafeUtility.AddressOf(ref loader._editorScheduledOperations);
+#endif
 			}
 
-			if (alreadyRegistered)
+			public void StartAssetLoading(PrometheusIdentifier prometheusIdentifier, byte priority)
 			{
-				ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
-				var state = loadedContentFile.State;
-
-				loadedContentFile.ChangeRequest &= ~ChangeRequest.ToUnregister;
-
-				if (state == State.WaitingToStartUnloading)
+				if (!_asset2ContentFile->TryGetValue(prometheusIdentifier, out var contentFileGuid))
 				{
-					loadedContentFile.State = loadedContentFile.contentFile.LoadingStatus == LoadingStatus.Completed ? State.Loaded : State.ErrorArchive;
+#if UNITY_EDITOR
+					_editorScheduledOperations->Add(new ScheduledOperation(prometheusIdentifier, priority, OperationType.Load));
+#endif
+					return;
 				}
-				else if (state == State.Unloading)
-				{
-					loadedContentFile.ChangeRequest |= ChangeRequest.ToRegister;
-				}
-				else if (state == State.WaitingForUnmount)
-				{
-					loadedContentFile.State = State.WaitingForDependencies;
-				}
-				else if (state == State.Unmounting)
-				{
-					loadedContentFile.ChangeRequest |= ChangeRequest.ToRegister;
-				}
-			}
-			else
-			{
-				var fileLoad = new ContentFileLoad
-				{
-					State = State.WaitingForMounting,
-					contentFileGuid = contentFileGuid,
-					referenceCount = 1,
-				};
-				fileLoad.Priority = priority;
 
-				loadingIndex = _contentFileLoads.Insert(fileLoad);
-
-				_contentFile2Index.Add(contentFileGuid, loadingIndex);
+				StartLoading(contentFileGuid, priority);
 			}
 
-			var requirements = _prometheusMapping.ContentFile2Dependencies[contentFileGuid];
-
-			for (var i = 0; i < requirements.Length; i++)
+			public void StartAssetUnloading(PrometheusIdentifier prometheusIdentifier, byte priority)
 			{
-				var requirementGuid = requirements[i];
-				if (requirementGuid != default)
+				if (!_asset2ContentFile->TryGetValue(prometheusIdentifier, out var contentFileGuid))
 				{
-					StartLoading(requirementGuid, priority);
+#if UNITY_EDITOR
+					_editorScheduledOperations->Add(new ScheduledOperation(prometheusIdentifier, priority, OperationType.Load));
+#endif
+					return;
 				}
+
+				StartUnloading(contentFileGuid, priority);
 			}
 
-			return loadingIndex;
-		}
-
-		void StartUnloading(SerializableGuid contentFileGuid, byte priority)
-		{
-			var loadingIndex = _contentFile2Index[contentFileGuid];
-			ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
-			--loadedContentFile.referenceCount;
-
-			if (loadedContentFile.referenceCount == 0)
+			internal uint StartLoading(SerializableGuid contentFileGuid, byte priority)
 			{
-				loadedContentFile.Priority = (byte)math.max((int)priority, (int)loadedContentFile.Priority);
-				loadedContentFile.ChangeRequest &= ~ChangeRequest.ToRegister;
+				var alreadyRegistered = _contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex);
+				if (alreadyRegistered)
+				{
+					ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
+					loadedContentFile.referenceCount++;
+					loadedContentFile.Priority = (byte)math.max((int)priority, (int)loadedContentFile.Priority);
 
-				if (loadedContentFile.State == State.WaitingForMounting)
-				{
-					loadedContentFile.State = State.Unmounting;
-					++_ongoingUnmountingCount;
+					if (loadedContentFile.referenceCount > 1)
+					{
+						return loadingIndex;
+					}
 				}
-				else if (loadedContentFile.State == State.Mounting)
+
+				if (alreadyRegistered)
 				{
-					loadedContentFile.ChangeRequest |= ChangeRequest.ToUnregister;
-				}
-				else if (loadedContentFile.State == State.WaitingForDependencies)
-				{
-					loadedContentFile.State = State.WaitingForUnmount;
-				}
-				else if (loadedContentFile.State == State.Loading)
-				{
-					loadedContentFile.ChangeRequest |= ChangeRequest.ToUnregister;
-				}
-				else if (loadedContentFile.State == State.ErrorArchive)
-				{
-					loadedContentFile.State = State.WaitingForUnmount;
-				}
-				else if (loadedContentFile.State == State.ErrorContentFiles)
-				{
-					loadedContentFile.State = State.WaitingToStartUnloading;
+					ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
+					var state = loadedContentFile.State;
+
+					loadedContentFile.ChangeRequest &= ~ChangeRequest.ToUnregister;
+
+					if (state == State.WaitingToStartUnloading)
+					{
+						loadedContentFile.State = loadedContentFile.contentFile.LoadingStatus == LoadingStatus.Completed ? State.Loaded : State.ErrorArchive;
+					}
+					else if (state == State.Unloading)
+					{
+						loadedContentFile.ChangeRequest |= ChangeRequest.ToRegister;
+					}
+					else if (state == State.WaitingForUnmount)
+					{
+						loadedContentFile.State = State.WaitingForDependencies;
+					}
+					else if (state == State.Unmounting)
+					{
+						loadedContentFile.ChangeRequest |= ChangeRequest.ToRegister;
+					}
 				}
 				else
 				{
-					loadedContentFile.State = State.WaitingToStartUnloading;
+					var fileLoad = new ContentFileLoad
+					{
+						State = State.WaitingForMounting,
+						contentFileGuid = contentFileGuid,
+						referenceCount = 1,
+					};
+					fileLoad.Priority = priority;
+
+					loadingIndex = _contentFileLoads.Insert(fileLoad);
+
+					_contentFile2Index.Add(contentFileGuid, loadingIndex);
 				}
 
-				var requirements = _prometheusMapping.ContentFile2Dependencies[contentFileGuid];
-				foreach (var requirement in requirements)
+				var requirements = (*_contentFile2Dependencies)[contentFileGuid];
+
+				for (var i = 0; i < requirements.Length; i++)
 				{
-					if (requirement != default)
+					var requirementGuid = requirements[i];
+					if (requirementGuid != default)
 					{
-						StartUnloading(requirement, priority);
+						StartLoading(requirementGuid, priority);
+					}
+				}
+
+				return loadingIndex;
+			}
+
+			internal void StartUnloading(SerializableGuid contentFileGuid, byte priority)
+			{
+				var loadingIndex = _contentFile2Index[contentFileGuid];
+				ref var loadedContentFile = ref _contentFileLoads[loadingIndex];
+				--loadedContentFile.referenceCount;
+
+				if (loadedContentFile.referenceCount == 0)
+				{
+					loadedContentFile.Priority = (byte)math.max((int)priority, (int)loadedContentFile.Priority);
+					loadedContentFile.ChangeRequest &= ~ChangeRequest.ToRegister;
+
+					if (loadedContentFile.State == State.WaitingForMounting)
+					{
+						loadedContentFile.State = State.Unmounting;
+						++_ongoingUnmountingCount;
+					}
+					else if (loadedContentFile.State == State.Mounting)
+					{
+						loadedContentFile.ChangeRequest |= ChangeRequest.ToUnregister;
+					}
+					else if (loadedContentFile.State == State.WaitingForDependencies)
+					{
+						loadedContentFile.State = State.WaitingForUnmount;
+					}
+					else if (loadedContentFile.State == State.Loading)
+					{
+						loadedContentFile.ChangeRequest |= ChangeRequest.ToUnregister;
+					}
+					else if (loadedContentFile.State == State.ErrorArchive)
+					{
+						loadedContentFile.State = State.WaitingForUnmount;
+					}
+					else if (loadedContentFile.State == State.ErrorContentFiles)
+					{
+						loadedContentFile.State = State.WaitingToStartUnloading;
+					}
+					else
+					{
+						loadedContentFile.State = State.WaitingToStartUnloading;
+					}
+
+					var requirements = (*_contentFile2Dependencies)[contentFileGuid];
+					foreach (var requirement in requirements)
+					{
+						if (requirement != default)
+						{
+							StartUnloading(requirement, priority);
+						}
 					}
 				}
 			}
@@ -157,16 +220,16 @@ namespace KVD.Prometheus
 
 		void ForceLoad(ref ContentFileLoad load)
 		{
-			var requirements = _prometheusMapping.ContentFile2Dependencies[load.contentFileGuid];
-			var dependencies = new NativeArray<ContentFile>(requirements.Length, Allocator.Temp);
+			var requirements = _prometheusMapping.contentFile2Dependencies[load.contentFileGuid];
+			var dependencies = new NativeArray<ContentFile>(requirements.LengthInt, Allocator.Temp);
 
 			for (var i = 0; i < requirements.Length; i++)
 			{
 				var requirementGuid = requirements[i];
 				if (requirementGuid != default)
 				{
-					var requirementIndex = _contentFile2Index[requirements[i]];
-					ref var requirementLoad = ref _contentFileLoads[requirementIndex];
+					var requirementIndex = _unmanaged._contentFile2Index[requirements[i]];
+					ref var requirementLoad = ref _unmanaged._contentFileLoads[requirementIndex];
 					if (!IsLoaded(requirementLoad))
 					{
 						ForceLoad(ref requirementLoad);
@@ -211,81 +274,54 @@ namespace KVD.Prometheus
 
 		void UpdateFileManagement()
 		{
+			UpdateFileManagementMarker.Begin();
+
 			if (_fileManagedUpdatePaused)
 			{
+				UpdateFileManagementMarker.End();
 				return;
 			}
 
 			// -- Allocate
-			var waitingForStartMountingList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingMountingCount-_ongoingMountingCount, Allocator.Temp);
+			AllocationsUpdateFileManagementMarker.Begin();
 
+			var waitingForStartMountingList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingMountingCount-_unmanaged._ongoingMountingCount, Allocator.Temp);
 			var waitingForMountFinish = new UnsafeList<uint>(MaxOngoingMountingCount, Allocator.Temp);
-
-			var waitingForDependenciesList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingContentLoadingCount-_ongoingContentLoadingCount, Allocator.Temp);
-
+			var waitingForDependenciesList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingContentLoadingCount-_unmanaged._ongoingContentLoadingCount, Allocator.Temp);
 			var loadingList = new UnsafeList<uint>(MaxOngoingContentLoadingCount, Allocator.Temp);
-
-			var waitingForUnloadingList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingContentUnloadingCount-_ongoingContentUnloadingCount, Allocator.Temp);
-
+			var waitingForUnloadingList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingContentUnloadingCount-_unmanaged._ongoingContentUnloadingCount, Allocator.Temp);
 			var unloadingList = new UnsafeList<uint>(MaxOngoingUnmountingCount, Allocator.Temp);
-
 			var unmountingList = new UnsafeList<uint>(MaxOngoingUnmountingCount, Allocator.Temp);
-
-			var waitingForUnmountingStartList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingUnmountingCount-_ongoingUnmountingCount, Allocator.Temp);
+			var waitingForUnmountingStartList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingUnmountingCount-_unmanaged._ongoingUnmountingCount, Allocator.Temp);
 
 			var dependencies = new NativeList<ContentFile>(12, Allocator.Temp);
 
+			AllocationsUpdateFileManagementMarker.End();
+
 			// -- Populate
-			foreach (var (loadPtr, index) in _contentFileLoads.EnumerateOccupiedIndexed())
+			PopulateUpdateFileManagementMarker.Begin();
+			var populateJob = new PopulateUpdateDataJob
 			{
-				ref var load = ref *loadPtr;
-				if (load.State == State.WaitingForMounting)
-				{
-					waitingForStartMountingList.Add(index, load.Priority);
-				}
-
-				if (load.State == State.Mounting)
-				{
-					waitingForMountFinish.Add(index);
-				}
-
-				if (load.State == State.WaitingForDependencies)
-				{
-					waitingForDependenciesList.Add(index, load.Priority);
-				}
-
-				if (load.State == State.Loading)
-				{
-					loadingList.Add(index);
-				}
-
-				if (load.State == State.WaitingToStartUnloading)
-				{
-					waitingForUnloadingList.Add(index, load.Priority);
-				}
-
-				if (load.State == State.Unloading)
-				{
-					unloadingList.Add(index);
-				}
-
-				if (load.State == State.Unmounting)
-				{
-					unmountingList.Add(index);
-				}
-
-				if (load.State == State.WaitingForUnmount)
-				{
-					waitingForUnmountingStartList.Add(index, load.Priority);
-				}
-			}
+				contentFileLoads = _unmanaged._contentFileLoads,
+				waitingForStartMountingList = &waitingForStartMountingList,
+				waitingForMountFinish = &waitingForMountFinish,
+				waitingForDependenciesList = &waitingForDependenciesList,
+				loadingList = &loadingList,
+				waitingForUnloadingList = &waitingForUnloadingList,
+				unloadingList = &unloadingList,
+				unmountingList = &unmountingList,
+				waitingForUnmountingStartList = &waitingForUnmountingStartList
+			};
+			populateJob.Run();
+			PopulateUpdateFileManagementMarker.End();
 
 			// -- State machine
+			StateMachineUpdateFileManagementMarker.Begin();
 			// Start mounting
-			while (_ongoingMountingCount < MaxOngoingMountingCount && waitingForStartMountingList.Length > 0)
+			while (_unmanaged._ongoingMountingCount < MaxOngoingMountingCount && waitingForStartMountingList.Length > 0)
 			{
 				var loadIndex = waitingForStartMountingList.Pop();
-				ref var load = ref _contentFileLoads[loadIndex];
+				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
 
 				var contentString = load.contentFileGuid.ToString("N");
 				var archiveFilePath = Path.Combine(PrometheusPersistence.ArchivesDirectoryPath, contentString);
@@ -294,20 +330,20 @@ namespace KVD.Prometheus
 				load.archiveHandle = archive;
 				load.State = State.Mounting;
 
-				++_ongoingMountingCount;
+				++_unmanaged._ongoingMountingCount;
 			}
 
 			// Check if mounting is finished
 			foreach (var loadIndex in waitingForMountFinish)
 			{
-				ref var load = ref _contentFileLoads[loadIndex];
+				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
 
 				if (load.archiveHandle.Status == ArchiveStatus.InProgress)
 				{
 					continue;
 				}
 
-				--_ongoingMountingCount;
+				--_unmanaged._ongoingMountingCount;
 				if (load.ChangeRequest.HasFlagFast(ChangeRequest.ToUnregister))
 				{
 					load.State = State.WaitingForUnmount;
@@ -331,20 +367,20 @@ namespace KVD.Prometheus
 			}
 
 			// Waiting for dependencies and start final loading
-			while (_ongoingContentLoadingCount < MaxOngoingContentLoadingCount && waitingForDependenciesList.Length > 0)
+			while (_unmanaged._ongoingContentLoadingCount < MaxOngoingContentLoadingCount && waitingForDependenciesList.Length > 0)
 			{
 				var loadIndex = waitingForDependenciesList.Pop();
-				ref var load = ref _contentFileLoads[loadIndex];
+				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
 
-				var requirements = _prometheusMapping.ContentFile2Dependencies[load.contentFileGuid];
+				var requirements = _prometheusMapping.contentFile2Dependencies[load.contentFileGuid];
 				var allDependenciesLoaded = true;
 				for (var i = 0; i < requirements.Length; i++)
 				{
 					var requirementGuid = requirements[i];
 					if (requirementGuid != default)
 					{
-						var requirementIndex = _contentFile2Index[requirementGuid];
-						ref var requirementLoad = ref _contentFileLoads[requirementIndex];
+						var requirementIndex = _unmanaged._contentFile2Index[requirementGuid];
+						ref var requirementLoad = ref _unmanaged._contentFileLoads[requirementIndex];
 						allDependenciesLoaded = requirementLoad.State is State.Loaded or State.ErrorArchive && allDependenciesLoaded;
 						dependencies.Add(requirementLoad.contentFile);
 					}
@@ -362,7 +398,7 @@ namespace KVD.Prometheus
 
 					loadingList.Add(loadIndex);
 
-					++_ongoingContentLoadingCount;
+					++_unmanaged._ongoingContentLoadingCount;
 				}
 
 				dependencies.Clear();
@@ -371,14 +407,14 @@ namespace KVD.Prometheus
 			// Check if loading is finished
 			foreach (var loadingIndex in loadingList)
 			{
-				ref var load = ref _contentFileLoads[loadingIndex];
+				ref var load = ref _unmanaged._contentFileLoads[loadingIndex];
 
 				if (load.contentFile.LoadingStatus == LoadingStatus.InProgress)
 				{
 					continue;
 				}
 
-				--_ongoingContentLoadingCount;
+				--_unmanaged._ongoingContentLoadingCount;
 				if (load.ChangeRequest.HasFlagFast(ChangeRequest.ToUnregister))
 				{
 					load.State = State.WaitingToStartUnloading;
@@ -401,19 +437,19 @@ namespace KVD.Prometheus
 
 			// Check if can start unloading
 			// To start unloading, all other content files, which depends on us, (dependants) must be unloaded
-			while (_ongoingContentUnloadingCount < MaxOngoingContentUnloadingCount && waitingForUnloadingList.Length > 0)
+			while (_unmanaged._ongoingContentUnloadingCount < MaxOngoingContentUnloadingCount && waitingForUnloadingList.Length > 0)
 			{
 				var loadIndex = waitingForUnloadingList.Pop();
-				ref var load = ref _contentFileLoads[loadIndex];
+				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
 
 				var allDependantsUnloaded = true;
-				if (_prometheusMapping.ContentFile2Dependants.TryGetValue(load.contentFileGuid, out var dependants))
+				if (_prometheusMapping.contentFile2Dependants.TryGetValue(load.contentFileGuid, out var dependants))
 				{
 					for (var i = 0; i < dependants.Length && allDependantsUnloaded; i++)
 					{
-						if (_contentFile2Index.TryGetValue(dependants[i], out var dependantIndex))
+						if (_unmanaged._contentFile2Index.TryGetValue(dependants[i], out var dependantIndex))
 						{
-							ref var dependantLoad = ref _contentFileLoads[dependantIndex];
+							ref var dependantLoad = ref _unmanaged._contentFileLoads[dependantIndex];
 							allDependantsUnloaded = dependantLoad.State is State.WaitingForUnmount or State.Unmounting;
 						}
 					}
@@ -427,14 +463,14 @@ namespace KVD.Prometheus
 
 					unloadingList.Add(loadIndex);
 
-					++_ongoingContentUnloadingCount;
+					++_unmanaged._ongoingContentUnloadingCount;
 				}
 			}
 
 			// Check if unloading is finished
 			foreach (var loadIndex in unloadingList)
 			{
-				ref var load = ref _contentFileLoads[loadIndex];
+				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
 
 				if (!load.unloadHandle.IsCompleted)
 				{
@@ -453,14 +489,14 @@ namespace KVD.Prometheus
 					waitingForUnmountingStartList.Add(loadIndex, load.Priority);
 				}
 
-				--_ongoingContentUnloadingCount;
+				--_unmanaged._ongoingContentUnloadingCount;
 			}
 
 			// Clean up unmounted, there is no check as unmounting is JobHandle and there is no reliable way to check if it is completed
 			// Just assume that at the next frame it will be completed
 			foreach (var loadIndex in unmountingList)
 			{
-				ref var load = ref _contentFileLoads[loadIndex];
+				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
 
 				if (load.ChangeRequest.HasFlagFast(ChangeRequest.ToRegister))
 				{
@@ -469,25 +505,27 @@ namespace KVD.Prometheus
 				}
 				else
 				{
-					_contentFile2Index.Remove(load.contentFileGuid);
-					_contentFileLoads.Release(loadIndex);
+					_unmanaged._contentFile2Index.Remove(load.contentFileGuid);
+					_unmanaged._contentFileLoads.Release(loadIndex);
 				}
 
-				--_ongoingUnmountingCount;
+				--_unmanaged._ongoingUnmountingCount;
 			}
 
 			// Start unmounting
-			while (_ongoingUnmountingCount < MaxOngoingUnmountingCount && waitingForUnmountingStartList.Length > 0)
+			while (_unmanaged._ongoingUnmountingCount < MaxOngoingUnmountingCount && waitingForUnmountingStartList.Length > 0)
 			{
 				var loadIndex = waitingForUnmountingStartList.Pop();
-				ref var load = ref _contentFileLoads[loadIndex];
+				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
 
 				load.archiveHandle.Unmount();
 				load.State = State.Unmounting;
-				++_ongoingUnmountingCount;
+				++_unmanaged._ongoingUnmountingCount;
 			}
+			StateMachineUpdateFileManagementMarker.End();
 
 			// -- Cleanup
+			DisposesUpdateFileManagementMarker.Begin();
 			waitingForStartMountingList.Dispose();
 			waitingForMountFinish.Dispose();
 			waitingForDependenciesList.Dispose();
@@ -497,6 +535,9 @@ namespace KVD.Prometheus
 			unmountingList.Dispose();
 			waitingForUnmountingStartList.Dispose();
 			dependencies.Dispose();
+			DisposesUpdateFileManagementMarker.End();
+
+			UpdateFileManagementMarker.End();
 		}
 
 		bool IsLoaded(in ContentFileLoad load)
@@ -575,6 +616,62 @@ namespace KVD.Prometheus
 
 			ToRegister = 1 << 0,
 			ToUnregister = 1 << 1,
+		}
+
+		// TODO: Burst makes it yield invalid data, in UnsafePriorityList there are duplicated entries and presumable some other are missing
+		//[BurstCompile]
+		struct PopulateUpdateDataJob : IJob
+		{
+			public OccupiedArray<ContentFileLoad> contentFileLoads;
+
+			[NativeDisableUnsafePtrRestriction] public UnsafePriorityList<uint, byte>* waitingForStartMountingList;
+			[NativeDisableUnsafePtrRestriction] public UnsafeList<uint>* waitingForMountFinish;
+			[NativeDisableUnsafePtrRestriction] public UnsafePriorityList<uint, byte>* waitingForDependenciesList;
+			[NativeDisableUnsafePtrRestriction] public UnsafeList<uint>* loadingList;
+			[NativeDisableUnsafePtrRestriction] public UnsafePriorityList<uint, byte>* waitingForUnloadingList;
+			[NativeDisableUnsafePtrRestriction] public UnsafeList<uint>* unloadingList;
+			[NativeDisableUnsafePtrRestriction] public UnsafeList<uint>* unmountingList;
+			[NativeDisableUnsafePtrRestriction] public UnsafePriorityList<uint, byte>* waitingForUnmountingStartList;
+
+			public void Execute()
+			{
+				foreach (var (loadPtr, index) in contentFileLoads.EnumerateOccupiedIndexed())
+				{
+					ref readonly var load = ref *loadPtr;
+					if (load.State == State.WaitingForMounting)
+					{
+						waitingForStartMountingList->Add(index, load.Priority);
+					}
+					else if (load.State == State.Mounting)
+					{
+						waitingForMountFinish->Add(index);
+					}
+					else if (load.State == State.WaitingForDependencies)
+					{
+						waitingForDependenciesList->Add(index, load.Priority);
+					}
+					else if (load.State == State.Loading)
+					{
+						loadingList->Add(index);
+					}
+					else if (load.State == State.WaitingToStartUnloading)
+					{
+						waitingForUnloadingList->Add(index, load.Priority);
+					}
+					else if (load.State == State.Unloading)
+					{
+						unloadingList->Add(index);
+					}
+					else if (load.State == State.Unmounting)
+					{
+						unmountingList->Add(index);
+					}
+					else if (load.State == State.WaitingForUnmount)
+					{
+						waitingForUnmountingStartList->Add(index, load.Priority);
+					}
+				}
+			}
 		}
 	}
 }

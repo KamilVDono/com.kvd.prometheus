@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using KVD.Utils.DataStructures;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine.SceneManagement;
 using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
@@ -17,6 +18,7 @@ namespace KVD.Prometheus
 		Callback[] _editorCallbacks;
 		UnsafeArray<LoadingTaskData> _editorLoadingTasks;
 		UnsafeArray<byte> _editorLoadingTasksVersion;
+		UnsafeList<ScheduledOperation> _editorScheduledOperations;
 		UnsafeBitmask _editorLoadingTasksMask;
 		UnsafeBitmask _editorWaitingTasksMask;
 
@@ -234,6 +236,7 @@ namespace KVD.Prometheus
 			_editorCallbacks = new Callback[256];
 			_editorLoadingTasks = new(256, Allocator.Domain);
 			_editorLoadingTasksVersion = new(256, Allocator.Domain);
+			_editorScheduledOperations = new(256, Allocator.Domain);
 			_editorLoadingTasksMask = new UnsafeBitmask(256, Allocator.Domain);
 			_editorWaitingTasksMask = new UnsafeBitmask(256, Allocator.Domain);
 #endif
@@ -511,7 +514,7 @@ namespace KVD.Prometheus
 		}
 
 		[Conditional("UNITY_EDITOR")]
-		void EditorUpdateCallbacks()
+		void EditorUpdate()
 		{
 #if UNITY_EDITOR
 			foreach (var loadingTaskIndex in _editorWaitingTasksMask.EnumerateOnes())
@@ -531,7 +534,54 @@ namespace KVD.Prometheus
 					_editorWaitingTasksMask.Down(loadingTaskIndex);
 				}
 			}
+
+			foreach (var scheduledOperation in _editorScheduledOperations)
+			{
+				var prometheusIdentifier = scheduledOperation.prometheusIdentifier;
+				if (scheduledOperation.operationType == OperationType.Load)
+				{
+					var availableInEditor = false;
+					EditorIsAssetAvailable(prometheusIdentifier, ref availableInEditor);
+					if (!availableInEditor)
+					{
+						Debug.LogError($"Asset {prometheusIdentifier.assetGuid}[{prometheusIdentifier.localIdentifier}] not found in Prometheus");
+					}
+				}
+				else if (scheduledOperation.operationType == OperationType.Unload)
+				{
+					var availableInEditor = false;
+					EditorIsAssetAvailable(prometheusIdentifier, ref availableInEditor);
+					if (!availableInEditor)
+					{
+						Debug.LogError($"Asset {prometheusIdentifier.assetGuid}[{prometheusIdentifier.localIdentifier}] not found in Prometheus");
+					}
+					return;
+				}
+			}
+			_editorScheduledOperations.Clear();
 #endif
 		}
+
+#if UNITY_EDITOR
+		readonly struct ScheduledOperation
+		{
+			public readonly PrometheusIdentifier prometheusIdentifier;
+			public readonly byte priority;
+			public readonly OperationType operationType;
+
+			public ScheduledOperation(PrometheusIdentifier prometheusIdentifier, byte priority, OperationType operationType)
+			{
+				this.prometheusIdentifier = prometheusIdentifier;
+				this.priority = priority;
+				this.operationType = operationType;
+			}
+		}
+
+		enum OperationType : byte
+		{
+			Load,
+			Unload,
+		}
+#endif
 	}
 }

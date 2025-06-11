@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using KVD.Utils;
 using KVD.Utils.DataStructures;
+using Unity.Collections;
 using Unity.Content;
 using Unity.Mathematics;
 using UnityEngine.PlayerLoop;
@@ -22,7 +23,7 @@ namespace KVD.Prometheus
 			_contentNamespace = ContentNamespace.GetOrCreateNamespace("Prometheus");
 			_prometheusMapping = LoadContentFilesData();
 
-			InitFileManagement();
+			_unmanaged = new Unmanaged(this, _prometheusMapping);
 			InitCallbacks();
 
 			EditorInitCallbacks();
@@ -30,7 +31,7 @@ namespace KVD.Prometheus
 
 		public Option<T> GetAsset<T>(PrometheusIdentifier prometheusIdentifier) where T : Object
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var hasAsset = false;
 				var result = Option<T>.None;
@@ -46,16 +47,16 @@ namespace KVD.Prometheus
 				}
 			}
 
-			var loadingIndex = _contentFile2Index[contentFileGuid];
-			ref var load = ref _contentFileLoads[loadingIndex];
+			var loadingIndex = _unmanaged._contentFile2Index[contentFileGuid];
+			ref var load = ref _unmanaged._contentFileLoads[loadingIndex];
 			return IsSuccessfullyLoaded(load) ?
-				Option<T>.Some((T)load.contentFile.GetObject(_prometheusMapping.Asset2LocalIdentifier[prometheusIdentifier])) :
+				Option<T>.Some((T)load.contentFile.GetObject(_prometheusMapping.asset2LocalIdentifier[prometheusIdentifier])) :
 				Option<T>.None;
 		}
 
 		public Option<T> ForceGetAsset<T>(PrometheusIdentifier prometheusIdentifier) where T : Object
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var hasAsset = false;
 				var result = Option<T>.None;
@@ -71,12 +72,12 @@ namespace KVD.Prometheus
 				}
 			}
 
-			if (!_contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
+			if (!_unmanaged._contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
 			{
 				Debug.LogError($"Asset {prometheusIdentifier.assetGuid}[{prometheusIdentifier.localIdentifier}] not started loading");
 				return Option<T>.None;
 			}
-			ref var load = ref _contentFileLoads[loadingIndex];
+			ref var load = ref _unmanaged._contentFileLoads[loadingIndex];
 
 			if (!IsLoaded(load))
 			{
@@ -84,20 +85,20 @@ namespace KVD.Prometheus
 			}
 
 			return IsSuccessfullyLoaded(load) ?
-				Option<T>.Some((T)load.contentFile.GetObject(_prometheusMapping.Asset2LocalIdentifier[prometheusIdentifier])) :
+				Option<T>.Some((T)load.contentFile.GetObject(_prometheusMapping.asset2LocalIdentifier[prometheusIdentifier])) :
 				Option<T>.None;
 		}
 
 		public bool IsActive(in PrometheusIdentifier prometheusIdentifier)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var isEditorActive = false;
 				EditorIsActive(prometheusIdentifier, ref isEditorActive);
 				return isEditorActive;
 			}
 
-			if (!_contentFile2Index.TryGetValue(contentFileGuid, out _))
+			if (!_unmanaged._contentFile2Index.TryGetValue(contentFileGuid, out _))
 			{
 				return false;
 			}
@@ -107,53 +108,53 @@ namespace KVD.Prometheus
 
 		public bool IsLoading(in PrometheusIdentifier prometheusIdentifier)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var isEditorLoading = false;
 				EditorIsLoading(prometheusIdentifier, ref isEditorLoading);
 				return isEditorLoading;
 			}
 
-			if (!_contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
+			if (!_unmanaged._contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
 			{
 				return false;
 			}
 
-			return !IsLoaded(_contentFileLoads[loadingIndex]);
+			return !IsLoaded(_unmanaged._contentFileLoads[loadingIndex]);
 		}
 
 		public bool IsLoaded(in PrometheusIdentifier prometheusIdentifier)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var isLoaded = false;
 				EditorIsLoaded(prometheusIdentifier, ref isLoaded);
 				return isLoaded;
 			}
 
-			if (!_contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
+			if (!_unmanaged._contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
 			{
 				return false;
 			}
 
-			return IsLoaded(_contentFileLoads[loadingIndex]);
+			return IsLoaded(_unmanaged._contentFileLoads[loadingIndex]);
 		}
 
 		public bool IsSuccessfullyLoaded(in PrometheusIdentifier prometheusIdentifier)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var isLoaded = false;
 				EditorIsLoaded(prometheusIdentifier, ref isLoaded);
 				return isLoaded;
 			}
 
-			if (!_contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
+			if (!_unmanaged._contentFile2Index.TryGetValue(contentFileGuid, out var loadingIndex))
 			{
 				return false;
 			}
 
-			return IsSuccessfullyLoaded(_contentFileLoads[loadingIndex]);
+			return IsSuccessfullyLoaded(_unmanaged._contentFileLoads[loadingIndex]);
 		}
 
 		public void StartAssetLoading(PrometheusIdentifier prometheusIdentifier, Priority priority = Priority.Normal)
@@ -163,7 +164,7 @@ namespace KVD.Prometheus
 
 		public void StartAssetLoading(PrometheusIdentifier prometheusIdentifier, byte priority)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var availableInEditor = false;
 				EditorIsAssetAvailable(prometheusIdentifier, ref availableInEditor);
@@ -174,7 +175,7 @@ namespace KVD.Prometheus
 				return;
 			}
 
-			StartLoading(contentFileGuid, priority);
+			_unmanaged.StartLoading(contentFileGuid, priority);
 		}
 
 		public void StartAssetUnloading(PrometheusIdentifier prometheusIdentifier, Priority priority = Priority.Normal)
@@ -184,7 +185,7 @@ namespace KVD.Prometheus
 
 		public void StartAssetUnloading(PrometheusIdentifier prometheusIdentifier, byte priority)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var availableInEditor = false;
 				EditorIsAssetAvailable(prometheusIdentifier, ref availableInEditor);
@@ -195,12 +196,12 @@ namespace KVD.Prometheus
 				return;
 			}
 
-			StartUnloading(contentFileGuid, priority);
+			_unmanaged.StartUnloading(contentFileGuid, priority);
 		}
 
 		public bool CanLoadAsset(PrometheusIdentifier prometheusIdentifier)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.ContainsKey(prometheusIdentifier))
+			if (!_prometheusMapping.asset2ContentFile.ContainsKey(prometheusIdentifier))
 			{
 				var availableInEditor = false;
 				EditorIsAssetAvailable(prometheusIdentifier, ref availableInEditor);
@@ -218,7 +219,7 @@ namespace KVD.Prometheus
 			UpdateFileManagement();
 			UpdateCallbacks();
 
-			EditorUpdateCallbacks();
+			EditorUpdate();
 		}
 
 		static PrometheusMapping LoadContentFilesData()
@@ -230,18 +231,17 @@ namespace KVD.Prometheus
 			{
 				if (File.Exists(mappingPath))
 				{
-					prometheusData = new();
-					prometheusData.Deserialize(mappingPath);
+					prometheusData = PrometheusMapping.Deserialize(mappingPath, Allocator.Domain);
 				}
 				else
 				{
 					Debug.LogError("Cannot find Prometheus mapping file so build data is not available");
-					prometheusData = PrometheusMapping.Fresh();
+					prometheusData = PrometheusMapping.Fresh(Allocator.Domain);
 				}
 			}
 			else
 			{
-				prometheusData = PrometheusMapping.Fresh();
+				prometheusData = PrometheusMapping.Fresh(Allocator.Domain);
 			}
 
 			return prometheusData;

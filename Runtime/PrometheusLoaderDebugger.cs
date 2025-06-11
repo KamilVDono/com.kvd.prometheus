@@ -34,11 +34,13 @@ namespace KVD.Prometheus
 			_expandedLoaded = new UnsafeBitmask(64, Allocator.Domain);
 
 			var editorAccess = new PrometheusLoader.EditorAccess(PrometheusLoader.Instance);
-			_assetIdentifiers = new(editorAccess.PrometheusMapping.Asset2LocalIdentifier.Count);
-			foreach (var assetIdentifier in editorAccess.PrometheusMapping.Asset2LocalIdentifier.Keys)
+			_assetIdentifiers = new(editorAccess.PrometheusMapping.asset2LocalIdentifier.Count);
+			var assetIdentifiers = editorAccess.PrometheusMapping.asset2LocalIdentifier.GetKeyArray(Allocator.Temp);
+			foreach (var assetIdentifier in assetIdentifiers)
 			{
 				_assetIdentifiers.Add(assetIdentifier);
 			}
+			assetIdentifiers.Dispose();
 
 			_assetTableIdentifierCache = new(_assetIdentifiers.Count);
 			_assetTableFileCache = new(_assetIdentifiers.Count);
@@ -119,7 +121,7 @@ namespace KVD.Prometheus
 			GUILayout.BeginVertical("box");
 
 			GUILayout.Label("Mapping:", UniversalGUILayout.BoldLabel);
-			GUILayout.Label($"Registered content files: {editorAccess.PrometheusMapping.ContentFile2Dependencies.Count}");
+			GUILayout.Label($"Registered content files: {editorAccess.PrometheusMapping.contentFile2Dependencies.Count}");
 
 			_expandedAssets = UniversalGUILayout.Foldout(_expandedAssets, $"Registered assets: {_assetIdentifiers.Count}");
 			if (_expandedAssets)
@@ -140,7 +142,7 @@ namespace KVD.Prometheus
 			if (!_assetTableFileCache.TryGetValue(prometheusIdentifier, out var cached))
 			{
 				var editorAccess = new PrometheusLoader.EditorAccess(PrometheusLoader.Instance);
-				if (!editorAccess.PrometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+				if (!editorAccess.PrometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 				{
 					cached = "Not in ContentMap";
 				}
@@ -157,7 +159,7 @@ namespace KVD.Prometheus
 		static string StateOfAsset(PrometheusIdentifier prometheusIdentifier)
 		{
 			var editorAccess = new PrometheusLoader.EditorAccess(PrometheusLoader.Instance);
-			if (!editorAccess.PrometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!editorAccess.PrometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				return "Not in ContentMap";
 			}
@@ -172,7 +174,7 @@ namespace KVD.Prometheus
 		static string AssetLoadButtonText(PrometheusIdentifier prometheusIdentifier)
 		{
 			var editorAccess = new PrometheusLoader.EditorAccess(PrometheusLoader.Instance);
-			if (!editorAccess.PrometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!editorAccess.PrometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				return "Unknown";
 			}
@@ -182,7 +184,7 @@ namespace KVD.Prometheus
 		static bool UnLoadEnableState(PrometheusIdentifier prometheusIdentifier)
 		{
 			var editorAccess = new PrometheusLoader.EditorAccess(PrometheusLoader.Instance);
-			if (!editorAccess.PrometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!editorAccess.PrometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				return false;
 			}
@@ -197,7 +199,7 @@ namespace KVD.Prometheus
 		static void StartAssetToggle(PrometheusIdentifier prometheusIdentifier)
 		{
 			var editorAccess = new PrometheusLoader.EditorAccess(PrometheusLoader.Instance);
-			var contentFileGuid = editorAccess.PrometheusMapping.Asset2ContentFile[prometheusIdentifier];
+			var contentFileGuid = editorAccess.PrometheusMapping.asset2ContentFile[prometheusIdentifier];
 			if (editorAccess.ContentFile2Index.ContainsKey(contentFileGuid))
 			{
 				PrometheusLoader.Instance.StartAssetUnloading(prometheusIdentifier);

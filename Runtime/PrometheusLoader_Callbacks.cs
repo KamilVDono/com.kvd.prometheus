@@ -34,7 +34,7 @@ namespace KVD.Prometheus
 
 		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, in CallbackSetup callbackSetup, byte priority)
 		{
-			if (!_prometheusMapping.Asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
+			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var editorHasAsset = false;
 				var editorResult = Option<LoadingTaskHandle>.None;
@@ -50,7 +50,7 @@ namespace KVD.Prometheus
 				}
 			}
 
-			var loadingIndex = StartLoading(contentFileGuid, priority);
+			var loadingIndex = _unmanaged.StartLoading(contentFileGuid, priority);
 
 			// Resize buffers if not enough space
 			if (_loadingTasksMask.AllSet())
@@ -73,7 +73,7 @@ namespace KVD.Prometheus
 			var version = ++_loadingTasksVersion[loadingTaskIndex];
 			var handle = LoadingTaskHandle.New(loadingTaskIndex, version);
 
-			var contentFileLoad = _contentFileLoads[loadingIndex];
+			var contentFileLoad = _unmanaged._contentFileLoads[loadingIndex];
 			if (!callbackSetup.delayedCallbacks && IsLoaded(contentFileLoad))
 			{
 				callbackSetup.callback?.Invoke(handle);
@@ -194,7 +194,7 @@ namespace KVD.Prometheus
 			}
 
 			var loadingTaskId = handle.loadingTaskId;
-			var contentFileLoad = _contentFileLoads[loadingTaskId];
+			var contentFileLoad = _unmanaged._contentFileLoads[loadingTaskId];
 
 			if (!delayedCallbacks && IsLoaded(contentFileLoad))
 			{
@@ -220,7 +220,7 @@ namespace KVD.Prometheus
 		{
 			foreach (var loadingTaskIndex in _waitingTasksMask.EnumerateOnes())
 			{
-				var contentFileLoad = _contentFileLoads[loadingTaskIndex];
+				var contentFileLoad = _unmanaged._contentFileLoads[loadingTaskIndex];
 				if (IsLoaded(contentFileLoad) == false)
 				{
 					continue;
@@ -236,9 +236,9 @@ namespace KVD.Prometheus
 		(Option<Object>, LoadResultState) Result(uint loadingTaskId, bool withCancelledState)
 		{
 			var loadingTaskData = _loadingTasks[loadingTaskId];
-			var contentFileGuid = _prometheusMapping.Asset2ContentFile[loadingTaskData.prometheusIdentifier];
-			var loadingIndex = _contentFile2Index[contentFileGuid];
-			ref var load = ref _contentFileLoads[loadingIndex];
+			var contentFileGuid = _prometheusMapping.asset2ContentFile[loadingTaskData.prometheusIdentifier];
+			var loadingIndex = _unmanaged._contentFile2Index[contentFileGuid];
+			ref var load = ref _unmanaged._contentFileLoads[loadingIndex];
 
 			if (IsLoaded(load) == false)
 			{
@@ -253,7 +253,7 @@ namespace KVD.Prometheus
 			}
 
 			return IsSuccessfullyLoaded(load) ?
-				(Option<Object>.Some(load.contentFile.GetObject(_prometheusMapping.Asset2LocalIdentifier[loadingTaskData.prometheusIdentifier])), LoadResultState.Success) :
+				(Option<Object>.Some(load.contentFile.GetObject(_prometheusMapping.asset2LocalIdentifier[loadingTaskData.prometheusIdentifier])), LoadResultState.Success) :
 				(Option<Object>.None, LoadResultState.Fail);
 		}
 
