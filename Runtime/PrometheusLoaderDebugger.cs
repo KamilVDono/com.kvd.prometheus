@@ -7,6 +7,8 @@ using KVD.Utils.Extensions;
 using KVD.Utils.GUIs;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Loading;
+using UnityEditor;
 using UnityEngine;
 
 namespace KVD.Prometheus
@@ -105,6 +107,18 @@ namespace KVD.Prometheus
 			var editorAccess = new PrometheusLoader.EditorAccess(PrometheusLoader.Instance);
 
 			_globalScroll = GUILayout.BeginScrollView(_globalScroll);
+			var timeSlice = ContentLoadInterface.GetIntegrationTimeMS();
+			var change = new UniversalGUILayout.CheckChangeScope();
+			GUILayout.BeginHorizontal();
+			GUILayout.Label("Integration time slice (ms):", GUILayout.Width(120));
+			timeSlice = GUILayout.HorizontalSlider(timeSlice, 0, 128);
+			GUILayout.Label($"{timeSlice:f1}", GUILayout.Width(60));
+			GUILayout.EndHorizontal();
+			if (change)
+			{
+				ContentLoadInterface.SetIntegrationTimeMS(timeSlice);
+			}
+			change.Dispose();
 
 			DrawMapping(editorAccess);
 			GUILayout.Label("", GUI.skin.horizontalSlider);

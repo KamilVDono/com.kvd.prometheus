@@ -23,7 +23,7 @@ namespace KVD.Prometheus
 			_contentNamespace = ContentNamespace.GetOrCreateNamespace("Prometheus");
 			_prometheusMapping = LoadContentFilesData();
 
-			_unmanaged = new Unmanaged(this, _prometheusMapping);
+			InitFilesManagement();
 			InitCallbacks();
 
 			EditorInitCallbacks();
@@ -220,6 +220,16 @@ namespace KVD.Prometheus
 			UpdateCallbacks();
 
 			EditorUpdate();
+		}
+
+		static bool IsLoaded(in ContentFileLoad load)
+		{
+			return load.State is State.Loaded or State.ErrorArchive or State.ErrorContentFiles;
+		}
+
+		static bool IsSuccessfullyLoaded(in ContentFileLoad load)
+		{
+			return load.State is State.Loaded;
 		}
 
 		static PrometheusMapping LoadContentFilesData()

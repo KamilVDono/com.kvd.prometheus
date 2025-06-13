@@ -15,10 +15,10 @@ namespace KVD.Prometheus
 {
 	public unsafe partial class PrometheusLoader
 	{
-		const byte MaxOngoingMountingCount = 20;
-		const byte MaxOngoingContentLoadingCount = 10;
-		const byte MaxOngoingUnmountingCount = 20;
-		const byte MaxOngoingContentUnloadingCount = 10;
+		public const ushort DefaultMaxOngoingMountingCount = 20;
+		public const ushort DefaultMaxOngoingContentLoadingCount = 10;
+		public const ushort DefaultMaxOngoingUnmountingCount = 20;
+		public const ushort DefaultMaxOngoingContentUnloadingCount = 10;
 
 		public static readonly ProfilerMarker UpdateFileManagementMarker = new("PrometheusLoader.UpdateFileManagement");
 		public static readonly ProfilerMarker AllocationsUpdateFileManagementMarker = new("PrometheusLoader.UpdateFileManagement.Allocations");
@@ -29,6 +29,11 @@ namespace KVD.Prometheus
 		Unmanaged _unmanaged;
 
 		bool _fileManagedUpdatePaused;
+
+		ushort _maxOngoingMountingCount;
+		ushort _maxOngoingContentLoadingCount;
+		ushort _maxOngoingUnmountingCount;
+		ushort _maxOngoingContentUnloadingCount;
 
 		/// <summary>
 		/// Unmanaged API for PrometheusLoader. Be aware that this API is not thread-safe and should be used only from the main thread, but can be bursted
@@ -217,6 +222,23 @@ namespace KVD.Prometheus
 				}
 			}
 		}
+		
+		public void OverrideSettings(Setup setup)
+		{
+			_maxOngoingMountingCount = setup.maxOngoingMountingCount.GetValueOrDefault(_maxOngoingMountingCount);
+			_maxOngoingContentLoadingCount = setup.maxOngoingContentLoadingCount.GetValueOrDefault(_maxOngoingContentLoadingCount);
+			_maxOngoingUnmountingCount = setup.maxOngoingUnmountingCount.GetValueOrDefault(_maxOngoingUnmountingCount);
+			_maxOngoingContentUnloadingCount = setup.maxOngoingContentUnloadingCount.GetValueOrDefault(_maxOngoingContentUnloadingCount);
+		}
+
+		void InitFilesManagement()
+		{
+			_unmanaged = new Unmanaged(this, _prometheusMapping);
+			_maxOngoingMountingCount = DefaultMaxOngoingMountingCount;
+			_maxOngoingContentLoadingCount = DefaultMaxOngoingContentLoadingCount;
+			_maxOngoingUnmountingCount = DefaultMaxOngoingUnmountingCount;
+			_maxOngoingContentUnloadingCount = DefaultMaxOngoingContentUnloadingCount;
+		}
 
 		void ForceLoad(ref ContentFileLoad load)
 		{
@@ -285,14 +307,14 @@ namespace KVD.Prometheus
 			// -- Allocate
 			AllocationsUpdateFileManagementMarker.Begin();
 
-			var waitingForStartMountingList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingMountingCount-_unmanaged._ongoingMountingCount, Allocator.Temp);
-			var waitingForMountFinish = new UnsafeList<uint>(MaxOngoingMountingCount, Allocator.Temp);
-			var waitingForDependenciesList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingContentLoadingCount-_unmanaged._ongoingContentLoadingCount, Allocator.Temp);
-			var loadingList = new UnsafeList<uint>(MaxOngoingContentLoadingCount, Allocator.Temp);
-			var waitingForUnloadingList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingContentUnloadingCount-_unmanaged._ongoingContentUnloadingCount, Allocator.Temp);
-			var unloadingList = new UnsafeList<uint>(MaxOngoingUnmountingCount, Allocator.Temp);
-			var unmountingList = new UnsafeList<uint>(MaxOngoingUnmountingCount, Allocator.Temp);
-			var waitingForUnmountingStartList = new UnsafePriorityList<uint, byte>((uint)MaxOngoingUnmountingCount-_unmanaged._ongoingUnmountingCount, Allocator.Temp);
+			var waitingForStartMountingList = new UnsafePriorityList<uint, byte>((uint)_maxOngoingMountingCount-_unmanaged._ongoingMountingCount, Allocator.Temp);
+			var waitingForMountFinish = new UnsafeList<uint>(_maxOngoingMountingCount, Allocator.Temp);
+			var waitingForDependenciesList = new UnsafePriorityList<uint, byte>((uint)_maxOngoingContentLoadingCount-_unmanaged._ongoingContentLoadingCount, Allocator.Temp);
+			var loadingList = new UnsafeList<uint>(_maxOngoingContentLoadingCount, Allocator.Temp);
+			var waitingForUnloadingList = new UnsafePriorityList<uint, byte>((uint)_maxOngoingContentUnloadingCount-_unmanaged._ongoingContentUnloadingCount, Allocator.Temp);
+			var unloadingList = new UnsafeList<uint>(_maxOngoingUnmountingCount, Allocator.Temp);
+			var unmountingList = new UnsafeList<uint>(_maxOngoingUnmountingCount, Allocator.Temp);
+			var waitingForUnmountingStartList = new UnsafePriorityList<uint, byte>((uint)_maxOngoingUnmountingCount-_unmanaged._ongoingUnmountingCount, Allocator.Temp);
 
 			var dependencies = new NativeList<ContentFile>(12, Allocator.Temp);
 
@@ -318,7 +340,7 @@ namespace KVD.Prometheus
 			// -- State machine
 			StateMachineUpdateFileManagementMarker.Begin();
 			// Start mounting
-			while (_unmanaged._ongoingMountingCount < MaxOngoingMountingCount && waitingForStartMountingList.Length > 0)
+			while (_unmanaged._ongoingMountingCount < _maxOngoingMountingCount && waitingForStartMountingList.Length > 0)
 			{
 				var loadIndex = waitingForStartMountingList.Pop();
 				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
@@ -367,7 +389,7 @@ namespace KVD.Prometheus
 			}
 
 			// Waiting for dependencies and start final loading
-			while (_unmanaged._ongoingContentLoadingCount < MaxOngoingContentLoadingCount && waitingForDependenciesList.Length > 0)
+			while (_unmanaged._ongoingContentLoadingCount < _maxOngoingContentLoadingCount && waitingForDependenciesList.Length > 0)
 			{
 				var loadIndex = waitingForDependenciesList.Pop();
 				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
@@ -437,7 +459,7 @@ namespace KVD.Prometheus
 
 			// Check if can start unloading
 			// To start unloading, all other content files, which depends on us, (dependants) must be unloaded
-			while (_unmanaged._ongoingContentUnloadingCount < MaxOngoingContentUnloadingCount && waitingForUnloadingList.Length > 0)
+			while (_unmanaged._ongoingContentUnloadingCount < _maxOngoingContentUnloadingCount && waitingForUnloadingList.Length > 0)
 			{
 				var loadIndex = waitingForUnloadingList.Pop();
 				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
@@ -513,7 +535,7 @@ namespace KVD.Prometheus
 			}
 
 			// Start unmounting
-			while (_unmanaged._ongoingUnmountingCount < MaxOngoingUnmountingCount && waitingForUnmountingStartList.Length > 0)
+			while (_unmanaged._ongoingUnmountingCount < _maxOngoingUnmountingCount && waitingForUnmountingStartList.Length > 0)
 			{
 				var loadIndex = waitingForUnmountingStartList.Pop();
 				ref var load = ref _unmanaged._contentFileLoads[loadIndex];
@@ -538,16 +560,6 @@ namespace KVD.Prometheus
 			DisposesUpdateFileManagementMarker.End();
 
 			UpdateFileManagementMarker.End();
-		}
-
-		bool IsLoaded(in ContentFileLoad load)
-		{
-			return load.State is State.Loaded or State.ErrorArchive or State.ErrorContentFiles;
-		}
-
-		bool IsSuccessfullyLoaded(in ContentFileLoad load)
-		{
-			return load.State is State.Loaded;
 		}
 
 		public struct ContentFileLoad
@@ -672,6 +684,85 @@ namespace KVD.Prometheus
 					}
 				}
 			}
+		}
+
+		public struct Setup
+		{
+			public Option<ushort> maxOngoingMountingCount;
+			public Option<ushort> maxOngoingContentLoadingCount;
+			public Option<ushort> maxOngoingUnmountingCount;
+			public Option<ushort> maxOngoingContentUnloadingCount;
+
+			public static Setup Default => new Setup
+			{
+				maxOngoingMountingCount = DefaultMaxOngoingMountingCount,
+				maxOngoingContentLoadingCount = DefaultMaxOngoingContentLoadingCount,
+				maxOngoingUnmountingCount = DefaultMaxOngoingUnmountingCount,
+				maxOngoingContentUnloadingCount = DefaultMaxOngoingContentUnloadingCount
+			};
+
+			public static Setup Empty => new Setup
+			{
+				maxOngoingMountingCount = Option<ushort>.None,
+				maxOngoingContentLoadingCount = Option<ushort>.None,
+				maxOngoingUnmountingCount = Option<ushort>.None,
+				maxOngoingContentUnloadingCount = Option<ushort>.None
+			};
+
+			public Setup(Option<ushort> maxOngoingMountingCount, Option<ushort> maxOngoingContentLoadingCount, Option<ushort> maxOngoingUnmountingCount, Option<ushort> maxOngoingContentUnloadingCount)
+			{
+				this.maxOngoingMountingCount = maxOngoingMountingCount;
+				this.maxOngoingContentLoadingCount = maxOngoingContentLoadingCount;
+				this.maxOngoingUnmountingCount = maxOngoingUnmountingCount;
+				this.maxOngoingContentUnloadingCount = maxOngoingContentUnloadingCount;
+			}
+		}
+	}
+
+	public static class SetupBuilder
+	{
+		public static PrometheusLoader.Setup WithMaxOngoingMountingCount(this in PrometheusLoader.Setup setup, ushort maxOngoingMountingCount)
+		{
+			return new PrometheusLoader.Setup
+			{
+				maxOngoingMountingCount = maxOngoingMountingCount,
+				maxOngoingContentLoadingCount = setup.maxOngoingContentLoadingCount,
+				maxOngoingUnmountingCount = setup.maxOngoingUnmountingCount,
+				maxOngoingContentUnloadingCount = setup.maxOngoingContentUnloadingCount
+			};
+		}
+
+		public static PrometheusLoader.Setup WithMaxOngoingContentLoadingCount(this in PrometheusLoader.Setup setup, ushort maxOngoingContentLoadingCount)
+		{
+			return new PrometheusLoader.Setup
+			{
+				maxOngoingMountingCount = setup.maxOngoingMountingCount,
+				maxOngoingContentLoadingCount = maxOngoingContentLoadingCount,
+				maxOngoingUnmountingCount = setup.maxOngoingUnmountingCount,
+				maxOngoingContentUnloadingCount = setup.maxOngoingContentUnloadingCount
+			};
+		}
+
+		public static PrometheusLoader.Setup WithMaxOngoingUnmountingCount(this in PrometheusLoader.Setup setup, ushort maxOngoingUnmountingCount)
+		{
+			return new PrometheusLoader.Setup
+			{
+				maxOngoingMountingCount = setup.maxOngoingMountingCount,
+				maxOngoingContentLoadingCount = setup.maxOngoingContentLoadingCount,
+				maxOngoingUnmountingCount = maxOngoingUnmountingCount,
+				maxOngoingContentUnloadingCount = setup.maxOngoingContentUnloadingCount
+			};
+		}
+
+		public static PrometheusLoader.Setup WithMaxOngoingContentUnloadingCount(this in PrometheusLoader.Setup setup, ushort maxOngoingContentUnloadingCount)
+		{
+			return new PrometheusLoader.Setup
+			{
+				maxOngoingMountingCount = setup.maxOngoingMountingCount,
+				maxOngoingContentLoadingCount = setup.maxOngoingContentLoadingCount,
+				maxOngoingUnmountingCount = setup.maxOngoingUnmountingCount,
+				maxOngoingContentUnloadingCount = maxOngoingContentUnloadingCount
+			};
 		}
 	}
 }
