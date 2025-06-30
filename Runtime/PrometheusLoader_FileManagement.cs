@@ -76,6 +76,11 @@ namespace KVD.Prometheus
 #endif
 			}
 
+			public void StartAssetLoading(PrometheusIdentifier prometheusIdentifier, Priority priority = Priority.Normal)
+			{
+				StartAssetLoading(prometheusIdentifier, (byte)priority);
+			}
+
 			public void StartAssetLoading(PrometheusIdentifier prometheusIdentifier, byte priority)
 			{
 				if (!_asset2ContentFile->TryGetValue(prometheusIdentifier, out var contentFileGuid))
@@ -88,6 +93,12 @@ namespace KVD.Prometheus
 
 				StartLoading(contentFileGuid, priority);
 			}
+
+			public void StartAssetUnloading(PrometheusIdentifier prometheusIdentifier, Priority priority = Priority.Normal)
+			{
+				StartAssetUnloading(prometheusIdentifier, (byte)priority);
+			}
+
 
 			public void StartAssetUnloading(PrometheusIdentifier prometheusIdentifier, byte priority)
 			{
