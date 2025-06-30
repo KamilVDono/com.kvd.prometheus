@@ -5,7 +5,10 @@ namespace KVD.Prometheus
 {
 	public class PrometheusSettings : ScriptableObject
 	{
+		[Header("Editor Settings")]
 		public bool useBuildData;
+		[Header("Build Settings")]
+		public bool buildWithPlayer = true;
 		public CompressionType compressionType = CompressionType.LZ4;
 
 		public enum CompressionType : byte
