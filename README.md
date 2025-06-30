@@ -115,5 +115,6 @@ Prometheus is licensed under the MIT License. See [LICENSE](LICENSE.md) for deta
 
 - Further allocations minimization
 - Explore lightweight asset references (e.g., inspired by `UnityObjectRef`) for bursted contexts.
+- Parallel burst API
 - Optimized tooling for massive projects
 

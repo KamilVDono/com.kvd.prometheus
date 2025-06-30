@@ -40,12 +40,20 @@ Settings window looks like:
 ![settings_window.png](./images/settings_window.png)
 
 **Settings:**
+
 * Use Build Data - determines if it should fallback to AssetDatabase.
-    * `True` - mean A
-    * `False` - mean B
+    * `True` - mean that build data will be used
+    * `False` - mean that AssetDatabase will be used
+* Build With Player - Prometheus automatically builds when you build your game.
 * Compression Type - which compression should be used for Content Files. Check [Unity documentation](https://docs.unity3d.com/ScriptReference/CompressionType.html).
 
 ## Build
 
-You can build Prometheus data (maping and `Content Files`) via `KVD/Prometheus/Build Prometheus`
+### Manual
+
+You can build manually Prometheus data (mapping and `Content Files`) via `KVD/Prometheus/Build Prometheus`
 ![build_menu.png](./images/build_menu.png)
+
+### Automatic with player build
+
+If you have enabled `Build With Player` then Prometheus automatically builds when you build your game.
