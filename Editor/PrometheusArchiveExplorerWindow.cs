@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using KVD.Utils.DataStructures;
+using KVD.Utils.Debugging;
 using KVD.Utils.Editor;
 using Unity.Collections;
 using Unity.Content;
@@ -97,11 +98,6 @@ namespace KVD.Prometheus.Editor
 			if (GUILayout.Button(_fileIconContent, GUILayout.Width(25)))
 			{
 				var selectedPath = EditorUtility.OpenFilePanel("Select File", PrometheusPersistence.ArchivesDirectoryPath, "");
-				// TODO: Also allow files from build
-				if (!selectedPath.Contains("ContentFiles") || !selectedPath.Contains("Archives"))
-				{
-					selectedPath = PrometheusPersistence.ArchivesDirectoryPath;
-				}
 				_filePath = selectedPath;
 			}
 			GUI.enabled = !string.IsNullOrEmpty(_filePath);
@@ -132,6 +128,8 @@ namespace KVD.Prometheus.Editor
 				var archive = handle.archive;
 				var expanded = _expandedArchives.Contains(handle.fileName);
 				var localIndex = i;
+				EditorGUILayout.BeginVertical("box");
+				EditorGUILayout.BeginVertical("box");
 				var newExpanded = EditorGUILayout.BeginFoldoutHeaderGroup(expanded, handle.fileName, null, UnloadButton(localIndex), _deleteButtonStyle);
 				if (expanded != newExpanded)
 				{
@@ -148,6 +146,8 @@ namespace KVD.Prometheus.Editor
 
 				if (!expanded)
 				{
+					EditorGUILayout.EndVertical();
+					EditorGUILayout.EndVertical();
 					continue;
 				}
 				var guid = new SerializableGuid(handle.fileName);
@@ -158,7 +158,7 @@ namespace KVD.Prometheus.Editor
 				var fileInfo = archive.GetFileInfo();
 				foreach (var info in fileInfo)
 				{
-					var text = $"{info.Filename} ({info.FileSize} bytes)";
+					var text = $"{info.Filename} ({BytesUtils.HumanReadableBytes(info.FileSize)} - {info.FileSize} bytes)";
 					EditorGUILayout.LabelField(text);
 				}
 
@@ -263,6 +263,8 @@ namespace KVD.Prometheus.Editor
 				}
 
 				--EditorGUI.indentLevel;
+				EditorGUILayout.EndVertical();
+				EditorGUILayout.EndVertical();
 			}
 
 			EditorGUILayout.EndScrollView();

@@ -4,6 +4,7 @@ using KVD.Utils.DataStructures;
 using Unity.Collections;
 using Unity.Content;
 using Unity.Mathematics;
+using UnityEngine;
 using UnityEngine.PlayerLoop;
 using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
@@ -205,10 +206,6 @@ namespace KVD.Prometheus
 			{
 				var availableInEditor = false;
 				EditorIsAssetAvailable(prometheusIdentifier, ref availableInEditor);
-				if (!availableInEditor)
-				{
-					Debug.LogError($"Asset {prometheusIdentifier.assetGuid}[{prometheusIdentifier.localIdentifier}] not found in Prometheus");
-				}
 				return availableInEditor;
 			}
 			return true;
@@ -237,8 +234,11 @@ namespace KVD.Prometheus
 			var mappingPath = PrometheusPersistence.MappingsFilePath;
 
 			PrometheusMapping prometheusData;
-			if (PrometheusSettings.Instance.useBuildData)
+#if UNITY_EDITOR
+			if (PrometheusSettings.Instance.useBuildData || !Application.isEditor)
 			{
+#endif
+
 				if (File.Exists(mappingPath))
 				{
 					prometheusData = PrometheusMapping.Deserialize(mappingPath, Allocator.Domain);
@@ -248,11 +248,13 @@ namespace KVD.Prometheus
 					Debug.LogError("Cannot find Prometheus mapping file so build data is not available");
 					prometheusData = PrometheusMapping.Fresh(Allocator.Domain);
 				}
+#if UNITY_EDITOR
 			}
 			else
 			{
 				prometheusData = PrometheusMapping.Fresh(Allocator.Domain);
 			}
+#endif
 
 			return prometheusData;
 		}
@@ -267,7 +269,7 @@ namespace KVD.Prometheus
 		}
 	}
 
-	static class PrometheusExt
+	public static class PrometheusExt
 	{
 		public static bool IsLoading(this PrometheusLoader.State state)
 		{

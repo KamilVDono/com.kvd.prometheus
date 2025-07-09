@@ -1,5 +1,9 @@
-﻿using KVD.Utils.Editor;
+﻿using System;
+using System.IO;
+using System.Runtime.CompilerServices;
+using KVD.Utils.Editor;
 using UnityEditor;
+using UnityEditor.Compilation;
 using UnityEngine;
 
 namespace KVD.Prometheus.Editor
@@ -26,6 +30,7 @@ namespace KVD.Prometheus.Editor
 
 			var prop = serializedSettings.GetIterator();
 
+			var requiresDomainReload = false;
 			EditorGUI.BeginChangeCheck();
 
 			for (var expanded = true; prop.NextVisible(expanded); expanded = false)
@@ -34,7 +39,13 @@ namespace KVD.Prometheus.Editor
 				{
 					continue;
 				}
+
+				EditorGUI.BeginChangeCheck();
 				EditorGUILayout.PropertyField(prop, true);
+				if (EditorGUI.EndChangeCheck() && prop.ExtractAttribute<DomainBoundAttribute>() != null)
+				{
+					requiresDomainReload = true;
+				}
 			}
 
 			var changed = EditorGUI.EndChangeCheck();
@@ -44,7 +55,19 @@ namespace KVD.Prometheus.Editor
 			if (changed)
 			{
 				settings.OnValidate();
+
+				if (requiresDomainReload)
+				{
+					var filePath = GetThisFilePath();
+					File.SetLastWriteTime(filePath, DateTime.Now);
+					AssetDatabase.Refresh();
+					CompilationPipeline.RequestScriptCompilation();
+				}
 			}
+		}
+
+		static string GetThisFilePath([CallerFilePath] string path = null) {
+			return path;
 		}
 	}
 }

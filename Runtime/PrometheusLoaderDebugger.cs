@@ -63,7 +63,7 @@ namespace KVD.Prometheus
 				,
 				ImguiTable<PrometheusIdentifier>.ColumnDefinition.Create("Asset", 128, DrawAsset, a => a.assetGuid),
 				ImguiTable<PrometheusIdentifier>.ColumnDefinition.Create("Type", 128, DrawType, a => a.assetGuid),
-				ImguiTableUtils.ButtonColumn<PrometheusIdentifier>("Editor Select", "Select", SelectAsset)
+				ImguiTableUtils.ButtonColumn<PrometheusIdentifier>("Editor Select", "Select", SelectAsset, width: 78)
 #endif
 				)
 				{
@@ -110,8 +110,8 @@ namespace KVD.Prometheus
 			var timeSlice = ContentLoadInterface.GetIntegrationTimeMS();
 			var change = new UniversalGUILayout.CheckChangeScope();
 			GUILayout.BeginHorizontal();
-			GUILayout.Label("Integration time slice (ms):", GUILayout.Width(120));
-			timeSlice = GUILayout.HorizontalSlider(timeSlice, 0, 128);
+			GUILayout.Label("Integration time slice (ms):", GUILayout.Width(156));
+			timeSlice = GUILayout.HorizontalSlider(timeSlice, 0, 30);
 			GUILayout.Label($"{timeSlice:f1}", GUILayout.Width(60));
 			GUILayout.EndHorizontal();
 			if (change)
@@ -419,8 +419,8 @@ namespace KVD.Prometheus
 			GUILayout.BeginVertical("box");
 
 			GUILayout.Label("Callbacks:", UniversalGUILayout.BoldLabel);
-			GUILayout.Label($"Registered callbacks: {editorAccess.LoadingTasksMask.CountOnes()}");
-			GUILayout.Label($"Waiting callbacks: {editorAccess.Callbacks.Count(c => c != null)}");
+			GUILayout.Label($"Registered loading tasks: {editorAccess.LoadingTasksMask.CountOnes()}");
+			GUILayout.Label($"Loading tasks with callbacks: {editorAccess.Callbacks.Count(c => c != null)}");
 
 			GUILayout.EndVertical();
 		}

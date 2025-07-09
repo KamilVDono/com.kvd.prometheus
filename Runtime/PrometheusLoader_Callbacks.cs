@@ -17,27 +17,17 @@ namespace KVD.Prometheus
 		UnsafeBitmask _loadingTasksMask;
 		UnsafeBitmask _waitingTasksMask;
 
-		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, Priority priority = Priority.Normal)
-		{
-			return LoadAssetAsync(prometheusIdentifier, (byte)priority);
-		}
-
-		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, byte priority)
-		{
-			return LoadAssetAsync(prometheusIdentifier, CallbackSetup.Empty, priority);
-		}
-
-		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, in CallbackSetup callbackSetup, Priority priority = Priority.Normal)
+		public LoadingTaskHandle LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, in CallbackSetup callbackSetup, Priority priority = Priority.Normal)
 		{
 			return LoadAssetAsync(prometheusIdentifier, callbackSetup, (byte)priority);
 		}
 
-		public Option<LoadingTaskHandle> LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, in CallbackSetup callbackSetup, byte priority)
+		public LoadingTaskHandle LoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, in CallbackSetup callbackSetup, byte priority)
 		{
 			if (!_prometheusMapping.asset2ContentFile.TryGetValue(prometheusIdentifier, out var contentFileGuid))
 			{
 				var editorHasAsset = false;
-				var editorResult = Option<LoadingTaskHandle>.None;
+				var editorResult = default(LoadingTaskHandle);
 				EditorLoadAssetAsync(prometheusIdentifier, callbackSetup.callback, callbackSetup.delayedCallbacks, ref editorHasAsset, ref editorResult);
 				if (editorHasAsset)
 				{
@@ -46,7 +36,7 @@ namespace KVD.Prometheus
 				else
 				{
 					Debug.LogError($"Asset {prometheusIdentifier.assetGuid}[{prometheusIdentifier.localIdentifier}] not found in ContentMap");
-					return Option<LoadingTaskHandle>.None;
+					return default;
 				}
 			}
 
@@ -84,7 +74,7 @@ namespace KVD.Prometheus
 				_waitingTasksMask.Up(loadingTaskIndex);
 			}
 
-			return Option<LoadingTaskHandle>.Some(handle);
+			return handle;
 		}
 
 		public void UnloadAssetAsync(ref LoadingTaskHandle handle)
@@ -92,26 +82,29 @@ namespace KVD.Prometheus
 #if UNITY_EDITOR
 			if (handle.IsEditorLoading)
 			{
-				EditorUnloadAssetAsync(ref handle);
+				var wasUnloaded = false;
+				EditorUnloadAssetAsync(ref handle, false, ref wasUnloaded);
 				return;
 			}
 #endif
 			// Always override handle with canceled one
 			var originalHandle = handle;
-			handle = handle.MakeCancelled();
+			var cancelledHandle = handle.MakeCancelled();
+			// remember to override the handle (passed as ref so will override the original)
+			handle = cancelledHandle;
 
 			if (CheckHandle(originalHandle, false) == false)
 			{
 				return;
 			}
 
-			var loadingTaskId = handle.loadingTaskId;
+			var loadingTaskId = cancelledHandle.loadingTaskId;
 			var loadingTaskData = _loadingTasks[loadingTaskId];
 
-			// If not loaded then we are canceling the loading task
+			// If not loaded, then we are canceling the loading task
 			if (_waitingTasksMask[loadingTaskId] && IsLoaded(loadingTaskData.prometheusIdentifier) == false)
 			{
-				_callbacks[loadingTaskId]?.Invoke(handle);
+				_callbacks[loadingTaskId]?.Invoke(cancelledHandle);
 			}
 
 			// Cleanup our data
@@ -122,6 +115,48 @@ namespace KVD.Prometheus
 			_waitingTasksMask.Down(loadingTaskId);
 
 			StartAssetUnloading(loadingTaskData.prometheusIdentifier);
+		}
+
+		public bool TryUnloadAssetAsync(ref LoadingTaskHandle handle)
+		{
+#if UNITY_EDITOR
+			if (handle.IsEditorLoading)
+			{
+				var wasUnloaded = false;
+				EditorUnloadAssetAsync(ref handle, true, ref wasUnloaded);
+				return wasUnloaded;
+			}
+#endif
+			// Always override handle with canceled one
+			var originalHandle = handle;
+			var cancelledHandle = handle.MakeCancelled();
+			// remember to override the handle (passed as ref so will override the original)
+			handle = cancelledHandle;
+
+			if (CheckHandle(originalHandle, true) == false)
+			{
+				return false;
+			}
+
+			var loadingTaskId = cancelledHandle.loadingTaskId;
+			var loadingTaskData = _loadingTasks[loadingTaskId];
+
+			// If not loaded, then we are canceling the loading task
+			if (_waitingTasksMask[loadingTaskId] && IsLoaded(loadingTaskData.prometheusIdentifier) == false)
+			{
+				_callbacks[loadingTaskId]?.Invoke(cancelledHandle);
+			}
+
+			// Cleanup our data
+			_callbacks[loadingTaskId] = null;
+			_loadingTasks[loadingTaskId] = default;
+			++_loadingTasksVersion[loadingTaskId];
+			_loadingTasksMask.Down(loadingTaskId);
+			_waitingTasksMask.Down(loadingTaskId);
+
+			StartAssetUnloading(loadingTaskData.prometheusIdentifier);
+
+			return true;
 		}
 
 		public (Option<T>, LoadResultState) Result<T>(in LoadingTaskHandle handle) where T : Object
@@ -154,30 +189,12 @@ namespace KVD.Prometheus
 				(Option<T>.None, state);
 		}
 
-		public PrometheusIdentifier RequestedAssetIdentifier(in LoadingTaskHandle handle)
+		public void AddCallback(in LoadingTaskHandle handle, in CallbackSetup callbackSetup)
 		{
 #if UNITY_EDITOR
 			if (handle.IsEditorLoading)
 			{
-				var identifier = default(PrometheusIdentifier);
-				EditorRequestedAssetIdentifier(handle, ref identifier);
-				return identifier;
-			}
-#endif
-			if (CheckHandle(handle, false) == false)
-			{
-				return default;
-			}
-
-			return _loadingTasks[handle.loadingTaskId].prometheusIdentifier;
-		}
-
-		public void AddCallback(in LoadingTaskHandle handle, Callback callback, bool delayedCallbacks)
-		{
-#if UNITY_EDITOR
-			if (handle.IsEditorLoading)
-			{
-				EditorAddCallback(handle, callback, delayedCallbacks);
+				EditorAddCallback(handle, callbackSetup.callback, callbackSetup.delayedCallbacks);
 				return;
 			}
 #endif
@@ -189,20 +206,28 @@ namespace KVD.Prometheus
 
 			if (handle.IsCancelled)
 			{
-				callback.Invoke(handle);
+				callbackSetup.callback.Invoke(handle);
 				return;
 			}
 
 			var loadingTaskId = handle.loadingTaskId;
 			var contentFileLoad = _unmanaged._contentFileLoads[loadingTaskId];
 
-			if (!delayedCallbacks && IsLoaded(contentFileLoad))
+			if (!callbackSetup.delayedCallbacks && IsLoaded(contentFileLoad))
 			{
-				callback?.Invoke(handle);
+				callbackSetup.callback.Invoke(handle);
 			}
 			else
 			{
-				_callbacks[loadingTaskId] = callback;
+				if (_callbacks[loadingTaskId] == null)
+				{
+					_callbacks[loadingTaskId] = callbackSetup.callback;
+				}
+				else
+				{
+					var oldCallback = _callbacks[loadingTaskId];
+					_callbacks[loadingTaskId] = oldCallback + callbackSetup.callback;
+				}
 				_waitingTasksMask.Up(loadingTaskId);
 			}
 		}
@@ -255,6 +280,24 @@ namespace KVD.Prometheus
 			return IsSuccessfullyLoaded(load) ?
 				(Option<Object>.Some(load.contentFile.GetObject(_prometheusMapping.asset2LocalIdentifier[loadingTaskData.prometheusIdentifier])), LoadResultState.Success) :
 				(Option<Object>.None, LoadResultState.Fail);
+		}
+
+		PrometheusIdentifier RequestedAssetIdentifier(in LoadingTaskHandle handle)
+		{
+#if UNITY_EDITOR
+			if (handle.IsEditorLoading)
+			{
+				var identifier = default(PrometheusIdentifier);
+				EditorRequestedAssetIdentifier(handle, ref identifier);
+				return identifier;
+			}
+#endif
+			if (CheckHandle(handle, false) == false)
+			{
+				return default;
+			}
+
+			return _loadingTasks[handle.loadingTaskId].prometheusIdentifier;
 		}
 
 		bool CheckHandle(in LoadingTaskHandle handle, bool allowCancelled)
@@ -332,11 +375,13 @@ namespace KVD.Prometheus
 			public readonly byte version;
 			public readonly uint loadingTaskId;
 
+			internal bool IsEditorLoading => _flags.HasFlagFast(Flags.EditorLoading);
+
 			public bool IsValid => _stateMask.HasFlagFast(StateMask.Valid);
 			public bool IsCancelled => _stateMask.HasFlagFast(StateMask.Cancelled);
 
-			internal bool IsEditorLoading => _flags.HasFlagFast(Flags.EditorLoading);
-			public PrometheusReference Reference => new PrometheusReference(Instance.RequestedAssetIdentifier(this));
+			public PrometheusIdentifier Identifier => Instance.RequestedAssetIdentifier(this);
+			public PrometheusReference Reference => new PrometheusReference(Identifier);
 
 			LoadingTaskHandle(StateMask state, uint loadingTaskId, byte version, Flags flags)
 			{
@@ -397,7 +442,6 @@ namespace KVD.Prometheus
 			public readonly Callback callback;
 			public readonly bool delayedCallbacks;
 
-			public static CallbackSetup Empty => new(null, false);
 			public static CallbackSetup Delayed(Callback callback) => new(callback, true);
 			public static CallbackSetup Immediate(Callback callback) => new(callback, false);
 

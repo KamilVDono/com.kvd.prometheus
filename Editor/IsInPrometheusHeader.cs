@@ -1,11 +1,18 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace KVD.Prometheus.Editor
 {
 	public static class IsInPrometheusHeader
 	{
+		static HashSet<Type> s_excludedTypes = new HashSet<Type>
+		{
+			typeof(PrometheusAssets),
+			typeof(SceneAsset),
+		};
 		static HashSet<Object> s_mainAssets = new HashSet<Object>();
 
 		[InitializeOnLoadMethod]
@@ -38,22 +45,22 @@ namespace KVD.Prometheus.Editor
 			var invalidAssets = 0;
 			for (var i = 0; i < targets.Length; i++)
 			{
-				invalidAssets += AssetDatabase.Contains(targets[i]) ? 0 : 1;
+				invalidAssets += AssetDatabase.Contains(targets[i]) && !s_excludedTypes.Contains(targets[i].GetType()) ? 0 : 1;
 			}
 			if (invalidAssets == targets.Length)
 			{
 				return;
 			}
 
-			var mainInContentFiles = 0;
-			var exactInContentFiles = 0;
+			var indirectCount = 0;
+			var directCount = 0;
 
 			for (var i = 0; i < targets.Length; i++)
 			{
 				var target = targets[i];
 				var mainAsset = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(targets[i]));
-				exactInContentFiles += PrometheusAssets.HasExact(target) ? 1 : 0;
-				mainInContentFiles += s_mainAssets.Contains(mainAsset) ? 1 : 0;
+				directCount += PrometheusAssets.HasExact(target) ? 1 : 0;
+				indirectCount += s_mainAssets.Contains(mainAsset) ? 1 : 0;
 			}
 
 			if (targets.Length == 1)
@@ -61,16 +68,17 @@ namespace KVD.Prometheus.Editor
 				var assetReference = PrometheusReferenceUtils.GetFromAssetNoAdd(targets[0]);
 				GUILayout.BeginHorizontal();
 
-				var isPresentExact = exactInContentFiles == 1;
+				var isPresentExact = directCount == 1;
 				var shouldBePresent = isPresentExact;
 
-				if (exactInContentFiles == 1)
+				if (directCount == 1)
 				{
-					shouldBePresent = GUILayout.Toggle(true, $"Is in Prometheus - Exact - {assetReference:N}");
+					shouldBePresent = GUILayout.Toggle(true, $"Is in Prometheus - Direct - {assetReference:N}");
 				}
-				else if (mainInContentFiles == 1)
+				else if (indirectCount == 1)
 				{
-					shouldBePresent = GUILayout.Toggle(false, $"In Prometheus - Main asset - {assetReference:N}");
+					using var mixedScope = new EditorGUI.MixedValueScope(true);
+					shouldBePresent = GUILayout.Toggle(false, $"In Prometheus - Indirect - {assetReference:N}");
 				}
 				else
 				{
@@ -93,17 +101,17 @@ namespace KVD.Prometheus.Editor
 			}
 			else
 			{
-				if (exactInContentFiles == targets.Length)
+				if (directCount == targets.Length)
 				{
 					GUILayout.Label("In Prometheus - Exact");
 				}
-				else if (mainInContentFiles == targets.Length)
+				else if (indirectCount == targets.Length)
 				{
 					GUILayout.Label("In Prometheus - Main assets");
 				}
-				else if (mainInContentFiles > 0 || exactInContentFiles > 0)
+				else if (indirectCount > 0 || directCount > 0)
 				{
-					GUILayout.Label($"In Prometheus - {mainInContentFiles}/{targets.Length} main assets, {exactInContentFiles}/{targets.Length} exact");
+					GUILayout.Label($"In Prometheus - {directCount}/{targets.Length} direct, {indirectCount}/{targets.Length} indirect");
 				}
 				else
 				{

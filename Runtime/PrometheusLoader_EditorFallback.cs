@@ -243,10 +243,10 @@ namespace KVD.Prometheus
 		}
 
 		[Conditional("UNITY_EDITOR")]
-		void EditorLoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, Callback callback, bool delayedCallbacks, ref bool hasAsset, ref Option<LoadingTaskHandle> loadingHandle)
+		void EditorLoadAssetAsync(in PrometheusIdentifier prometheusIdentifier, Callback callback, bool delayedCallbacks, ref bool hasAsset, ref LoadingTaskHandle loadingHandle)
 		{
 			hasAsset = false;
-			loadingHandle = Option<LoadingTaskHandle>.None;
+			loadingHandle = default;
 #if UNITY_EDITOR
 			if (PrometheusSettings.Instance.useBuildData)
 			{
@@ -297,12 +297,12 @@ namespace KVD.Prometheus
 				_editorCallbacks[loadingTaskIndex] = callback;
 			}
 
-			loadingHandle = Option<LoadingTaskHandle>.Some(handle);
+			loadingHandle = handle;
 #endif
 		}
 
 		[Conditional("UNITY_EDITOR")]
-		void EditorUnloadAssetAsync(ref LoadingTaskHandle handle)
+		void EditorUnloadAssetAsync(ref LoadingTaskHandle handle, bool allowCancelled, ref bool wasUnloaded)
 		{
 #if UNITY_EDITOR
 			if (PrometheusSettings.Instance.useBuildData)
@@ -314,9 +314,10 @@ namespace KVD.Prometheus
 			handle = handle.MakeCancelled();
 
 			var isHandleValid = false;
-			EditorCheckHandle(originalHandle, false, ref isHandleValid);
+			EditorCheckHandle(originalHandle, allowCancelled, ref isHandleValid);
 			if (isHandleValid == false)
 			{
+				wasUnloaded = false;
 				return;
 			}
 
@@ -339,6 +340,8 @@ namespace KVD.Prometheus
 			// Cleanup our data
 			_editorCallbacks[loadingTaskId] = null;
 			_editorLoadingTasks[loadingTaskId] = default;
+
+			wasUnloaded = true;
 #endif
 		}
 

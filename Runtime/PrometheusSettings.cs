@@ -6,6 +6,7 @@ namespace KVD.Prometheus
 	public class PrometheusSettings : ScriptableObject
 	{
 		[Header("Editor Settings")]
+		[DomainBound]
 		public bool useBuildData;
 		[Header("Build Settings")]
 		public bool buildWithPlayer = true;

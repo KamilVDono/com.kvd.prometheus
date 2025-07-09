@@ -229,9 +229,6 @@ namespace KVD.Prometheus.Editor
 				AssetDatabase.Refresh();
 			}
 
-			_instance._assetsSet.Clear();
-			_instance._assetsSet.UnionWith(_instance.assets);
-
 #if UNITY_EDITOR
 			PrometheusLoader.IsAssetAvailableFunc = HasAny;
 #endif
@@ -243,6 +240,9 @@ namespace KVD.Prometheus.Editor
 		static void InitializeOnLoad()
 		{
 			_instance ??= LoadOrCreateInstance();
+
+			_instance._assetsSet.Clear();
+			_instance._assetsSet.UnionWith(_instance.assets);
 		}
 		#endregion
 	}
