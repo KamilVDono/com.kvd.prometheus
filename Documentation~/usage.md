@@ -2,88 +2,88 @@
 
 [Table of contents](index.md)
 
-**Main API is accessible via PrometheusLoader.Instance**
+**The main API is accessible via `PrometheusLoader.Instance`.**
 
-**For priority:** Higher value mean higher priority, higher priority mean it will be streaming/processed at first, _**don't mean it will be loaded first**_. If you start loading of lightweight mesh with priority 1 and heavy prefab with priority 200, then there is high probability that mesh will finish loading first.
+**Priority:** A higher value means higher priority. Higher priority means the asset will be streamed/processed first, but it does _not_ guarantee it will be loaded first. For example, if you start loading a lightweight mesh with priority 1 and a heavy prefab with priority 200, there is a high probability that the mesh will finish loading first.
 
 ## Common API
 
-### Data structures
+### Data Structures
 
-`Option<T>` - Value `T` or None, similar to nullable, forces user to deal with possibility of None 
+`Option<T>` - Represents a value of type `T` or None, similar to a nullable type. Forces the user to handle the possibility of None.
 
-`PrometheusIdentifier` - Identifier of asset, is immutable and preferred for runtime usage
+`PrometheusIdentifier` - An immutable identifier for an asset. Preferred for runtime usage.
 
-`PrometheusReference` - Soft reference to asset, similar to `PrometheusIdentifier` but mutable with possibility to setup from editor
+`PrometheusReference` - A soft reference to an asset, similar to `PrometheusIdentifier` but mutable and can be set up from the editor.
 
 ### Streaming
 
-### Methods
+#### Methods
 
-`void StartAssetLoading(identifier, priority)` - Increments references count of asset with `identifier` and starts loading if previously reference count was 0
+`void StartAssetLoading(identifier, priority)` - Increments the reference count of the asset with the given identifier and starts loading if the previous reference count was 0.
 
-`void StartAssetUnloading(identifier, priority)` - Decrement references count of asset with `identifier`and starts unloading if now reference count is equal to 0
+`void StartAssetUnloading(identifier, priority)` - Decrements the reference count of the asset with the given identifier and starts unloading if the reference count is now 0.
 
-`Option<T> GetAsset<T>(identifier) where T : Object` - If asset related to identifier successfully loaded then returns asset, otherwise None
+`Option<T> GetAsset<T>(identifier) where T : Object` - If the asset related to the identifier is successfully loaded, returns the asset; otherwise, returns None.
 
-`Option<T> ForceGetAsset<T>(identifier) where T : Object` - If asset is not loaded then synchronously completes loading, then operates like `GetAsset<T>`
+`Option<T> ForceGetAsset<T>(identifier) where T : Object` - If the asset is not loaded, synchronously completes loading, then operates like `GetAsset<T>`.
 
 ### Queries
 
-### Methods
+#### Methods
 
-`bool IsActive(in identifier)` - true if reference count is greater than 0, otherwise false. In other words, true if you called StartAssetLoading more times than StartAssetUnloading or it is dependency of other Active asset.
+`bool IsActive(in identifier)` - Returns true if the reference count is greater than 0; otherwise, false. In other words, true if you called `StartAssetLoading` more times than `StartAssetUnloading` or it is a dependency of another active asset.
 
-`bool IsLoading(in identifier)` - true if asset is at any loading state, false if loaded or reference count equals 0.
+`bool IsLoading(in identifier)` - Returns true if the asset is in any loading state; false if loaded or the reference count equals 0.
 
-`bool IsLoaded(in identifier)` - true if asset is at any loaded state (successful or failed), otherwise false.
+`bool IsLoaded(in identifier)` - Returns true if the asset is in any loaded state (successful or failed); otherwise, false.
 
-`bool IsSuccessfullyLoaded(in identifier)` - true if asset is loaded and loading yield success
+`bool IsSuccessfullyLoaded(in identifier)` - Returns true if the asset is loaded and loading yielded success.
 
 ## Bursted API
 
-By calling `PrometheusLoader.Instance.Unmanaged` you get reference to unmanaged struct that provides API for bursted operations. You can pass it as pointer to Job.
+By calling `PrometheusLoader.Instance.Unmanaged`, you get a reference to an unmanaged struct that provides an API for bursted operations. You can pass it as a pointer to a Job.
 
 ### Methods
 
-`void StartAssetLoading(identifier, priority)` - Increments references count of asset with `identifier` and starts loading if previously reference count was 0
+`void StartAssetLoading(identifier, priority)` - Increments the reference count of the asset with the given identifier and starts loading if the previous reference count was 0.
 
-`void StartAssetUnloading(identifier, priority)` - Decrement references count of asset with `identifier`and starts unloading if now reference count is equal to 0
+`void StartAssetUnloading(identifier, priority)` - Decrements the reference count of the asset with the given identifier and starts unloading if the reference count is now 0.
 
 ## Callbacks
 
-**This may be looking like simpler way, but in real callbacks are more complex when cancellation is in game.**
+> **Note:** While callbacks may look simpler, in reality, they become more complex when cancellation is involved.
 
-### Data structures
+### Data Structures
 
-`CallbackSetup` - struct which holds callback setup, you can create two types:
-- Immediate - will be called Immediate inside `LoadAssetAsync` if asset is already loaded
-- Delayed - even if asset is already loaded, callback will be called during next `PreUpdate`(don't mean next frame, if you call loading during any point of player loop before `PreUpdate`, then it will be called the same frame)
+`CallbackSetup` - Struct that holds callback setup. You can create two types:
+- **Immediate** - Will be called immediately inside `LoadAssetAsync` if the asset is already loaded.
+- **Delayed** - Even if the asset is already loaded, the callback will be called during the next `PreUpdate`. (Note: This does not necessarily mean the next frame; if you call loading at any point in the player loop before `PreUpdate`, it will be called in the same frame.)
 
-`LoadingTaskHandle` - represents asset loading, allows to unload/cancel loading and query for current state of loading. Handles has built-in safety checks, so it shouldn't be possible to invalidate state of loading.
+`LoadingTaskHandle` - Represents asset loading, allows you to unload/cancel loading and query for the current state of loading. Handles have built-in safety checks, so it should not be possible to invalidate the state of loading.
 
-`LoadResultState` - enumeration for current state of loading. Values are:
-- **Invalid** - `LoadingTaskHandle` was invalid
-- **Fail** - Loading is done but asset is not available (maybe corrupted or missing asset file)
-- **Cancelled** - Loading was cancelled
-- **Success** - Loading done with success
-- **InProgress** - Loading still ongoing
+`LoadResultState` - Enumeration for the current state of loading. Values are:
+- **Invalid** - `LoadingTaskHandle` was invalid.
+- **Fail** - Loading is done but the asset is not available (maybe a corrupted or missing asset file).
+- **Cancelled** - Loading was cancelled.
+- **Success** - Loading completed successfully.
+- **InProgress** - Loading is still ongoing.
 
 ### Methods
 
-`LoadingTaskHandle LoadAssetAsync(in identifier, in callbackSetup, priority)` - starts asset loading, if asset is available for streaming (is in build) then returns valid `LoadingTaskHandle`, otherwise `LoadingTaskHandle` will be invalid.
+`Option<LoadingTaskHandle> LoadAssetAsync(in identifier, in callbackSetup, priority)` - Starts asset loading. If the asset is available for streaming (is in build), returns `LoadingTaskHandle`; otherwise, returns None.
 
-`void UnloadAssetAsync(ref handle)` - Unload (or cancel loading if still loading) asset. **Error will be printed if handle is not in `Fail`, `Success` or `InProgress` state.**
+`void UnloadAssetAsync(ref handle)` - Unloads (or cancels loading if still loading) the asset. **An error will be printed if the handle is not in `Fail`, `Success`, or `InProgress` state.**
 
-`bool TryUnloadAssetAsync(ref handle)` - Unload (or cancel loading if still loading) asset, return true if unloading succeed, if handle was already cancelled or invalid then false. **Error will be printed if handle is `Invalid`.**
+`bool TryUnloadAssetAsync(ref handle)` - Unloads (or cancels loading if still loading) the asset. Returns true if unloading succeeded; if the handle was already cancelled or invalid, returns false. **An error will be printed if the handle is `Invalid`.**
 
-`(Option<T>, LoadResultState) Result<T>(in handle) where T : Object` - Check state of loading, returns pair with option to asset (same as `GetAsset`) and loading state. You probably will call it from callback.
+`(Option<T>, LoadResultState) Result<T>(in handle) where T : Object` - Checks the state of loading. Returns a pair with an option to the asset (same as `GetAsset`) and the loading state. You will probably call this from a callback.
 
-`void AddCallback(in handle, in callbackSetup)` - Allows you to append additional callback to existing loading. _If loading is cancelled then callback will be always immediate._
+`void AddCallback(in handle, in callbackSetup)` - Allows you to append an additional callback to existing loading. _If loading is cancelled, the callback will always be immediate._
 
 ### Cancellation
 
-After calling `UnloadAssetAsync` you will still get callback, were `LoadResultState` will be `Cancelled`. 
+After calling `UnloadAssetAsync`, you will still get a callback, where `LoadResultState` will be `Cancelled`.
 
 ## Examples
 
